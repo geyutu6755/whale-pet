@@ -137,7 +137,11 @@ def handle(msg):
         result = {'tools': TOOLS}
     elif method == 'tools/call':
         params = msg.get('params') or {}
-        result = call_tool(params.get('name', ''), params.get('args'))
+        # MCP 标准字段是 arguments；兼容部分客户端的 args 写法
+        args = params.get('arguments')
+        if args is None:
+            args = params.get('args')
+        result = call_tool(params.get('name', ''), args)
     elif method == 'ping':
         result = {}
     else:
