@@ -100,7 +100,12 @@ IDLE_HOLD_MS = 420               # idle 常驻帧停驻时长（眨眼节奏）
 
 SCALES = {'小': 0.7, '中': 0.9, '大': 1.1, '特大': 1.35}
 ALPHAS = {'100%': 1.0, '85%': 0.85, '70%': 0.70, '55%': 0.55}
+VOLUMES = {'小': 0.40, '中': 0.70, '大': 1.0}
 BRIDGE_PORT_DEFAULT = 37821
+
+# 用量采集：ZCode 的模型 I/O 记录（每次模型调用的真实 usage + 起止时间）
+ROLLOUT_DIR = os.path.join(os.path.expanduser('~'), '.zcode', 'cli', 'rollout')
+USAGE_STATE = os.path.join(ASSETS, 'usage_state.json')
 
 NAVY = (58, 84, 140)
 INK = (43, 58, 103)
@@ -175,7 +180,10 @@ def load_font(size, bold=False):
 def load_config():
     cfg = {'x': None, 'y': None, 'scale': 0.9, 'alpha': 1.0, 'topmost': True,
            'bridge_enabled': True, 'bridge_port': BRIDGE_PORT_DEFAULT,
-           'sound': True, 'sound_volume': 0.8}
+           # 音效：默认开启，音量 中；sound_chatter=思考/工作中的碎碎念（默认关，免打扰）
+           'sound': True, 'sound_volume': VOLUMES['中'], 'sound_chatter': False,
+           # 用量来源：auto=有 ZCode 模型 I/O 记录就用它（钩子在 ZCode 上不触发）
+           'usage_source': 'auto'}
     try:
         with open(CONFIG_PATH, 'r', encoding='utf-8') as f:
             cfg.update(json.load(f))
@@ -459,6 +467,9 @@ class BridgeServer:
                     return self._json(200, {
                         'ok': True, 'state': app.state, 'flip': app.flip,
                         'hidden': app.hidden, 'scale': app.scale,
+                        'sound': bool(app.sound.enabled),
+                        'sound_volume': round(float(app.sound.volume), 2),
+                        'usage_source': app.usage_source,
                         'x': app.px, 'y': app.py, 'ts': time.time()})
                 if self.path.startswith('/metrics'):
                     with app._metrics_lock:
@@ -488,9 +499,11 @@ class BridgeServer:
                     etype = str(data.get('type', ''))[:24]
                     text = str(data.get('text', ''))[:120]
                     ms = max(0, min(int(data.get('ms', 0)), 120000))
+                    value = data.get('value')
+                    value = float(value) if isinstance(value, (int, float)) else None
                 except Exception:
                     return self._json(400, {'ok': False, 'err': 'bad json'})
-                app.cmd_queue.put(('agent', etype, text, ms))
+                app.cmd_queue.put(('agent', etype, text, ms, value))
                 return self._json(200, {'ok': True})
 
         try:
@@ -510,19 +523,21 @@ class BridgeServer:
 #   整句语音（voice/，口播整句）：Agent 联动与待机闲聊时使用，气泡同步显示她说的那句话
 # --------------------------------------------------------------------------
 SOUND_POOLS = {
-    # ---- 本地互动（气泡仍走 118 条台词，语音作为情绪层）----
+    # ---- 本地互动：只有用户动手时才会出声（气泡仍走 118 条台词）----
     'tap':          ('aowu', 'aowu2', 'hao', 'zai'),          # 点击
     'poke':         ('aiya', 'biebie', 'heng'),               # 连戳（不耐烦）
-    'pet':          ('momo', 'yang', 'tie', 'bao', 'xiexie',  # 抚摸/被 Agent 夸奖
-                     'coquetry0', 'coquetry3', 'coquetry7',
-                     'coquetry10', 'coquetry13'),
+    'pet':          ('momo', 'yang', 'tie', 'bao', 'xiexie',  # 抚摸/被夸奖（撒娇全在这）
+                     'coquetry0', 'coquetry1', 'coquetry2', 'coquetry3',
+                     'coquetry4', 'coquetry5', 'coquetry6', 'coquetry7',
+                     'coquetry8', 'coquetry9', 'coquetry10', 'coquetry11',
+                     'coquetry12', 'coquetry13', 'coquetry14'),
     'drag':         ('aiya2', 'wawa'),                        # 被拎起来
     'play':         ('haoye', 'heihei', 'wuhu', 'gaoding', 'enheng'),
     'feed':         ('yugan',),                               # 投喂
-    'wake':         ('zai', 'hao', 'lai'),                    # 睡醒
-    'sleep':        ('kun', 'wanan'),                         # 入睡
+    'wake':         ('zai', 'hao', 'lai'),                    # 睡醒（点她唤醒）
+    'sleep':        ('kun', 'wanan'),                         # 哄睡（菜单主动触发）
     'show':         ('lai', 'hao'),                           # 从隐藏恢复
-    # ---- Agent 状态联动 / 待机闲聊（整句语音，气泡同步）----
+    # ---- Agent 状态联动（整句语音，气泡与语音同步）----
     'welcome':      ('welcome0', 'lai', 'hao'),
     'celebrate':    ('celebrate0', 'celebrate1', 'celebrate2', 'celebrate3',
                      'celebrate4', 'celebrate5', 'celebrate6', 'celebrate7',
@@ -530,18 +545,19 @@ SOUND_POOLS = {
     'error':        ('heng', 'aiya'),
     'disappointed': ('sad0', 'sad1', 'sad2', 'sad3', 'sad4', 'sad5', 'sad6',
                      'sad7', 'wuwu'),
+    'wait':         ('approval0',),
+    # 思考/工作碎碎念：由 sound_chatter 开关控制（默认关，免得一直念叨）
     'think':        ('running0', 'running1', 'running2', 'running3', 'running4',
                      'running5', 'running6', 'running7', 'running8', 'running9',
-                     'huh'),
+                     'huh', 'todo0', 'todo1', 'todo2', 'todo3'),
     'working':      ('running0', 'running1', 'running2', 'running3', 'running4',
                      'running5', 'running6', 'running7', 'running8', 'running9',
-                     'chong', 'jiayou'),
-    'wait':         ('approval0',),
-    'idle':         ('coquetry1', 'coquetry2', 'coquetry4', 'coquetry5',
-                     'coquetry6', 'coquetry8', 'coquetry9', 'coquetry11',
-                     'coquetry12', 'coquetry14',
-                     'todo0', 'todo1', 'todo2', 'todo3'),
+                     'chong', 'jiayou', 'todo0', 'todo1', 'todo2', 'todo3'),
 }
+
+# 用户主动触发的动作：可以打断正在播的语音（点她要有即时反馈）
+URGENT_EVENTS = ('tap', 'poke', 'pet', 'drag', 'play', 'feed', 'wake', 'show',
+                 'sleep')
 
 # Agent 自带台词时用的短反应音：不抢话，只做情绪点缀
 SOUND_INTERJECTIONS = {
@@ -552,7 +568,7 @@ SOUND_INTERJECTIONS = {
 }
 
 # 反复触发类事件的最小间隔（秒）：陪伴语音不该变成噪音
-SOUND_COOLDOWN = {'idle': 150.0, 'think': 20.0, 'working': 15.0, 'wait': 8.0}
+SOUND_COOLDOWN = {'celebrate': 12.0, 'think': 25.0, 'working': 20.0, 'wait': 8.0}
 
 SYNC_TEXT_MIN = 6      # 台词 ≥6 字 → 气泡同步显示她说的话；短促音仍配 118 条台词
 
@@ -563,11 +579,13 @@ class SoundEngine:
     - winsound 不允许「内存 + 异步」组合，故在后台线程里做同步播放：
       主循环（60fps）零阻塞，这正是丝滑度的前提
     - 音量按需缩放 16bit PCM 后缓存；同名单音 90ms 内不重放，防止连点爆音
-    - 池内随机且避开最近用过的条目；反复触发类事件带冷却
+    - 池内随机且避开最近用过的条目（含跨事件防重复）；反复触发类事件带冷却
+    - 上一条还没播完时，非用户主动的事件不再开腔（避免叠音/听感上的"卡住重复"）
     - 缺文件（例如删掉 voice/ 只留 short/）会自动跳过候选，功能照常
     """
 
     MIN_GAP_S = 0.09
+    VOICE_GAP_S = 1.2          # 两条语音之间的最小间隔（秒）
 
     def __init__(self, enabled=True, volume=0.8, pools=None):
         self.dir = SOUNDS_DIR
@@ -578,7 +596,11 @@ class SoundEngine:
         self._cache = {}
         self._playing = None          # 保持引用：播放期间缓冲必须存活
         self._last_at = {}
-        self._recent = {}             # event -> 最近用过的条目（避免连续重复）
+        self._dur = {}                # name -> 时长（判断"还在播"）
+        self._playing_until = 0.0
+        self._recent = {}             # event -> 最近用过的条目（事件内防重复）
+        self._recent_any = []         # 全局最近播过的条目（跨事件防重复）
+        self._last_voice = 0.0
         self._last_event = {}         # event -> 上次触发时间（冷却用）
         try:
             import winsound
@@ -601,34 +623,52 @@ class SoundEngine:
                 return p
         return None
 
-    def pick(self, event):
-        """按事件挑一条音效。返回 (name, 台词) 或 None（无候选/冷却中/已静音）。"""
+    def pick(self, event, urgent=False):
+        """按事件挑一条音效。返回 (name, 台词) 或 None（无候选/冷却中/已静音）。
+
+        urgent=True（用户主动点击等）可打断正在播的语音；否则上一条没播完就不再开腔，
+        也不会在 1.2 秒内连开第二条——这两条是"卡住/重复读"的根治手段。
+        """
         if not self.enabled:
             return None
         now = time.time()
         cd = SOUND_COOLDOWN.get(event)
         if cd and now - self._last_event.get(event, 0.0) < cd:
             return None
+        if not urgent:
+            if now < self._playing_until - 0.15 or now - self._last_voice < self.VOICE_GAP_S:
+                return None
         cands = [n for n in self.pools.get(event, ()) if self._path(n)]
         if not cands:
             return None
-        recent = self._recent.get(event, [])
-        name = random.choice([n for n in cands if n not in recent] or cands)
-        self._recent[event] = ([name] + recent)[:3]
+        blocked = set(self._recent.get(event, [])) | set(self._recent_any)
+        name = random.choice([n for n in cands if n not in blocked] or cands)
+        self._recent[event] = ([name] + self._recent.get(event, []))[:3]
+        self._recent_any = ([name] + self._recent_any)[:3]
         self._last_event[event] = now
         return name, (self.lines.get(name, {}) or {}).get('text', '')
 
-    def play_event(self, event):
+    def play_event(self, event, urgent=False):
         """挑一条并播放，返回 (name, 台词) 或 None。"""
-        item = self.pick(event)
+        item = self.pick(event, urgent)
         if item:
             self.play(item[0])
+            self._last_voice = time.time()
+            self._playing_until = self._last_voice + self._dur.get(item[0], 0.6)
         return item
 
     def play_any(self, names):
         """从给定候选里随机播一条（Agent 自带台词时的短反应音）。"""
         cands = [n for n in names if self._path(n)]
-        return self.play(random.choice(cands)) if cands else False
+        if not cands:
+            return False
+        name = random.choice([n for n in cands if n not in self._recent_any] or cands)
+        self._recent_any = ([name] + self._recent_any)[:3]
+        ok = self.play(name)
+        if ok:
+            self._last_voice = time.time()
+            self._playing_until = self._last_voice + self._dur.get(name, 0.6)
+        return ok
 
     def _data(self, name):
         key = (name, round(self.volume, 2))
@@ -639,6 +679,7 @@ class SoundEngine:
         try:
             with wave.open(path, 'rb') as w:
                 nch, sw, fr = w.getnchannels(), w.getsampwidth(), w.getframerate()
+                self._dur[name] = w.getnframes() / float(fr or 1)
                 raw = w.readframes(w.getnframes())
             if sw == 2:
                 arr = np.frombuffer(raw, dtype='<i2').astype(np.float32) * self.volume
@@ -675,6 +716,142 @@ class SoundEngine:
             self._ws.PlaySound(data, self._ws.SND_MEMORY | self._ws.SND_NODEFAULT)
         except Exception:
             pass
+
+
+# --------------------------------------------------------------------------
+# 用量采集：读 ZCode 的模型 I/O 记录（不依赖宿主钩子）
+# --------------------------------------------------------------------------
+class UsageTail:
+    """tail ~/.zcode/cli/rollout/model-io-*.jsonl，把每次模型调用的用量累计进 HUD。
+
+    为什么不用钩子：ZCode 侧钩子虽已注册（启动日志 hookCount=3），但实测没有任何
+    执行记录，HUD 长期为 0。模型 I/O 记录里有真实 usage（inputTokens/outputTokens/
+    cacheReadTokens）与耗时，且不依赖宿主配合；只读本地文件、不出网。
+
+    去重：以记录里的 completedAt 作为水位线，状态持久化到 assets/usage_state.json，
+    重启不丢累计、也不重复计。
+    """
+
+    READ_TAIL_BYTES = 8 * 1024 * 1024
+
+    def __init__(self, app, interval=2.0):
+        self.app = app
+        self.dir = app.cfg.get('usage_rollout_dir') or ROLLOUT_DIR
+        self.state_path = USAGE_STATE
+        self.interval = interval
+        self.offsets = {}
+        self.last_ts = ''
+        self._max_ts = ''
+        self._last_saved = None
+        self._persist_at = 0.0
+
+    # ---- 状态持久化 ----
+    def load(self):
+        try:
+            with open(self.state_path, encoding='utf-8') as f:
+                st = json.load(f)
+            return st.get('metrics'), str(st.get('last_ts') or '')
+        except Exception:
+            return None, ''
+
+    def save(self, metrics=None):
+        try:
+            if metrics is None:
+                with self.app._metrics_lock:
+                    metrics = dict(self.app.metrics)
+            with open(self.state_path, 'w', encoding='utf-8') as f:
+                json.dump({'last_ts': self.last_ts, 'metrics': metrics}, f,
+                          ensure_ascii=False)
+        except Exception:
+            pass
+
+    def _maybe_save(self, force=False):
+        """累计有变化（主循环已消费队列）就尽快落盘，最迟 15 秒兜底一次。"""
+        with self.app._metrics_lock:
+            cur = dict(self.app.metrics)
+        if not force and cur == self._last_saved and \
+                time.time() - self._persist_at < 15:
+            return
+        self._last_saved = cur
+        self._persist_at = time.time()
+        self.save(cur)
+
+    # ---- 扫描 ----
+    def _files(self):
+        try:
+            return [os.path.join(self.dir, f) for f in os.listdir(self.dir)
+                    if f.startswith('model-io-') and f.endswith('.jsonl')]
+        except Exception:
+            return []
+
+    def _record(self, line):
+        """模型 I/O 记录 → (ts, usage payload)；非用量记录返回 None。"""
+        try:
+            e = json.loads(line)
+        except Exception:
+            return None
+        if not isinstance(e, dict) or e.get('type') != 'model_io':
+            return None
+        u = ((e.get('response') or {}).get('usage') or {})
+        inp, out = int(u.get('inputTokens') or 0), int(u.get('outputTokens') or 0)
+        if inp + out <= 0:
+            return None
+        ts = str(e.get('completedAt') or e.get('startedAt') or '')
+        return ts, {'source': 'rollout', 'input_tokens': inp, 'output_tokens': out,
+                    'cache_read_tokens': int(u.get('cacheReadTokens') or 0),
+                    'cache_creation_tokens': 0,
+                    'duration_ms': int(e.get('durationMs') or 0)}
+
+    def _read(self, path, off_from, count):
+        """从 off_from 读到文件尾，按完整行解析；返回新的偏移。"""
+        try:
+            size = os.path.getsize(path)
+            if off_from is None:
+                off_from = max(0, size - self.READ_TAIL_BYTES)
+            if off_from > size:            # 被截断/轮转
+                off_from = 0
+            if off_from >= size:
+                return size
+            with open(path, 'rb') as f:
+                f.seek(off_from)
+                chunk = f.read()
+            end = chunk.rfind(b'\n')
+            if end < 0:                    # 还没有完整行
+                return off_from
+            for line in chunk[:end].decode('utf-8', 'ignore').splitlines():
+                if not line.strip():
+                    continue
+                rec = self._record(line)
+                if not rec:
+                    continue
+                ts, payload = rec
+                if ts > self._max_ts:
+                    self._max_ts = ts
+                if count and (not self.last_ts or ts > self.last_ts):
+                    self.app.cmd_queue.put(('metrics', payload))
+            return off_from + end + 1
+        except Exception:
+            return off_from or 0
+
+    def scan(self, initial=False):
+        # 首次运行（没有历史水位线）只对齐水位、不把过去的历史全算进来
+        count = not (initial and not self.last_ts)
+        for path in self._files():
+            self.offsets[path] = self._read(path, self.offsets.get(path), count)
+        if self._max_ts:
+            self.last_ts = self._max_ts
+            self._max_ts = ''
+        # 累计有变化就尽快落盘（文件很小）：即使桌宠被强杀，也不丢累计、不重复计
+        self._maybe_save(force=initial)
+
+    def run(self):
+        self.scan(initial=True)
+        while True:
+            time.sleep(self.interval)
+            try:
+                self.scan()
+            except Exception:
+                pass
 
 
 # --------------------------------------------------------------------------
@@ -722,6 +899,19 @@ class PetApp:
                         'cache_hit_rate': 0.0, 'output_rate': 0.0,
                         'responses': 0}
         self._metrics_dirty = False
+        # 用量来源：ZCode 用模型 I/O 记录（钩子实测不触发）；其他宿主回落到钩子上报
+        self.usage_source = self.cfg.get('usage_source', 'auto')
+        if self.usage_source == 'auto':
+            self.usage_source = ('rollout' if os.path.isdir(ROLLOUT_DIR) else 'hooks')
+        self.usage_tail = None
+        if self.usage_source == 'rollout':
+            self.usage_tail = UsageTail(self)
+            snap, last_ts = self.usage_tail.load()
+            if isinstance(snap, dict):
+                with self._metrics_lock:
+                    self.metrics.update({k: snap.get(k, self.metrics[k])
+                                         for k in self.metrics if k in snap})
+            self.usage_tail.last_ts = last_ts
         # 用量面板显示模式：auto=点一下短暂显示 / on=常显 / off=关闭
         self.hud_mode = self.cfg.get('hud_mode', 'auto')
         if self.hud_mode not in ('auto', 'on', 'off'):
@@ -733,11 +923,15 @@ class PetApp:
 
         self._compute_layout()
         self._build_window()
+        self._sound_var = tk.BooleanVar(value=self.sound.enabled)
+        self._vol_var = tk.DoubleVar(
+            value=float(self.cfg.get('sound_volume', VOLUMES['中'])))
         self.player = SpritePlayer(self.scale)
         self._refresh_base()
         self._bind_events()
         self._start_tray()
         self._start_bridge()
+        self._start_usage()
         self._welcome()
         self._t0 = time.time()
         self._tick_count = 0
@@ -872,12 +1066,12 @@ class PetApp:
         """播放事件语音。返回 True = 气泡已交给语音台词（调用方不必再补台词）。
 
         短促反应音（嗷呜/哎呀…）返回 False，气泡照旧显示 118 条台词里的随机一句；
-        整句语音（≥6 字，如 Agent 庆祝/安慰、待机撒娇）返回 True 并同步气泡文案，
+        整句语音（≥6 字，如 Agent 庆祝/安慰、抚摸撒娇）返回 True 并同步气泡文案，
         做到"她说的"和"屏幕上写的"一致。隐藏状态下保持安静。
         """
         if self.hidden:
             return False
-        item = self.sound.play_event(event)
+        item = self.sound.play_event(event, urgent=event in URGENT_EVENTS)
         if not item:
             return False
         text = item[1]
@@ -997,9 +1191,18 @@ class PetApp:
         m.add_command(label='打招呼', command=lambda: self.cmd_queue.put('hello'))
         m.add_command(label='投喂', command=lambda: self.cmd_queue.put('feed'))
         m.add_command(label='玩耍', command=lambda: self.cmd_queue.put('play'))
+        m.add_command(label='哄她睡觉', command=lambda: self.cmd_queue.put('sleep_now'))
         m.add_command(label='转圈圈', command=lambda: self.cmd_queue.put('spin'))
         m.add_command(label='摇头晃脑', command=lambda: self.cmd_queue.put('headshake'))
         m.add_command(label='隐藏', command=lambda: self.cmd_queue.put('hide'))
+        m.add_separator()
+        m.add_checkbutton(label='音效', variable=self._sound_var,
+                          command=self.toggle_sound)
+        vol = tk.Menu(m, tearoff=0, font=('Microsoft YaHei', 9))
+        for name, val in VOLUMES.items():
+            vol.add_radiobutton(label=name, variable=self._vol_var, value=val,
+                                command=self.set_volume_choice)
+        m.add_cascade(label='音量', menu=vol)
         m.add_separator()
         m.add_command(label='退出', command=self.quit)
         try:
@@ -1021,9 +1224,11 @@ class PetApp:
         """底层派生状态：睡眠/散步/小动作/待机。"""
         now = time.time()
         if now - self.idle_since >= SLEEP_AFTER_MS / 1000:
-            self._set_state('sleep')
-            if random.random() < 0.5:
-                if not self._voice('sleep'):
+            # 只在「刚入睡」那一刻说一次：sleep 是无时长状态，本函数每 tick 都会走到这里，
+            # 少了这个判断就会每秒塞几十条 Zzz…（表现为台词/音效卡住重复）
+            if self.state != 'sleep':
+                self._set_state('sleep')
+                if random.random() < 0.4:
                     self.say(random.choice(LINES['sleep']))
             return
         if now >= self.walk_wait:
@@ -1115,8 +1320,7 @@ class PetApp:
                 self._next_bubble()
             if not self.bubble and not self.bubble_queue and \
                     self.state == 'idle' and random.random() < 0.0012:
-                if not self._voice('idle'):      # 偶尔出声说一句（带冷却）
-                    self.say(random.choice(LINES['idle']))
+                self.say(random.choice(LINES['idle']))     # 只写字，不出声
             if DEBUG:
                 self._fps_count(now)
         except Exception:
@@ -1239,8 +1443,15 @@ class PetApp:
             return f'{round(n / 1000)}k'
         return str(int(n))
 
+    def _start_usage(self):
+        """启动用量采集线程（模型 I/O 记录）。"""
+        if self.usage_tail:
+            threading.Thread(target=self.usage_tail.run, daemon=True).start()
+
     def _handle_metrics(self, data):
-        """累计一次用量上报并重算命中率/速率。"""
+        """累计一次用量上报并重算命中率/速率（只认当前数据源）。"""
+        if str(data.get('source') or 'hook') != self.usage_source:
+            return
         with self._metrics_lock:
             m = self.metrics
             m['input_tokens'] += int(data.get('input_tokens', 0))
@@ -1558,6 +1769,7 @@ class PetApp:
                 pystray.MenuItem('打招呼', cmd('hello')),
                 pystray.MenuItem('投喂', cmd('feed')),
                 pystray.MenuItem('玩耍', cmd('play')),
+                pystray.MenuItem('哄她睡觉', cmd('sleep_now')),
                 pystray.MenuItem('转圈圈', cmd('spin')),
                 pystray.MenuItem('摇头晃脑', cmd('headshake')),
                 pystray.MenuItem('隐藏', cmd('hide')),
@@ -1573,6 +1785,12 @@ class PetApp:
                                  checked=lambda i: bool(self.cfg.get('topmost'))),
                 pystray.MenuItem('音效', cmd('sound'),
                                  checked=lambda i: self.sound.enabled),
+                pystray.MenuItem('音量', pystray.Menu(
+                    *(pystray.MenuItem(k, cmd(('sound_volume', v)),
+                                       checked=lambda i, v=v: abs(self.sound.volume - v) < 1e-6)
+                      for k, v in VOLUMES.items()))),
+                pystray.MenuItem('工作中碎碎念', cmd('sound_chatter'),
+                                 checked=lambda i: bool(self.cfg.get('sound_chatter'))),
                 pystray.MenuItem('大小', pystray.Menu(
                     *(pystray.MenuItem(k, cmd(('scale', v)),
                                        checked=lambda i, v=v: abs(self.scale - v) < 1e-6)
@@ -1605,7 +1823,7 @@ class PetApp:
             print(f'[bridge] {e}', flush=True)
             self.bridge = None
 
-    def _handle_agent(self, etype, text, ms):
+    def _handle_agent(self, etype, text, ms, value=None):
         """处理 Agent 桥事件。"""
         try:
             if etype == 'say':
@@ -1631,6 +1849,8 @@ class PetApp:
             elif etype == 'idle':
                 self._interact()
                 self._set_state('idle')
+            elif etype == 'sleep':
+                self._go_sleep()
             elif etype in ('spin', 'headshake', 'sway', 'hop', 'nod', 'trick'):
                 self._interact()
                 if etype == 'trick':
@@ -1649,12 +1869,17 @@ class PetApp:
                 self.set_sound(True)
             elif etype == 'sound_off':
                 self.set_sound(False)
+            elif etype == 'sound_volume' and value is not None:
+                self.set_volume(value)
             elif etype in AGENT_STATE_MS:
                 self._interact()
                 dur = (ms or AGENT_STATE_MS[etype]) / 1000.0
                 self._set_state(etype, dur)
                 if etype in ('think', 'wait', 'working'):
-                    if not self._voice(etype) and random.random() < 0.6:
+                    # 思考/工作的碎碎念默认关（sound_chatter），免得你没点她也一直念叨；
+                    # 等待批准是关键时刻，始终出声
+                    chatter = etype == 'wait' or bool(self.cfg.get('sound_chatter'))
+                    if not (chatter and self._voice(etype)) and random.random() < 0.6:
                         pool = LINES[f'agent_{etype}']
                         if etype == 'think' and random.random() < 0.4:
                             pool = LINES['think_line']
@@ -1719,12 +1944,16 @@ class PetApp:
                 self.set_topmost(not bool(self.cfg.get('topmost')))
             elif cmd == 'sound':
                 self.set_sound(not self.sound.enabled)
+            elif cmd == 'sound_chatter':
+                self.set_sound_chatter(not bool(self.cfg.get('sound_chatter')))
+            elif cmd == 'sleep_now':
+                self._go_sleep()
             elif cmd == 'hud_toggle':
                 self.set_hud_mode('on' if self.hud_mode == 'off' else
                                   ('off' if self.hud_mode == 'on' else 'on'))
             elif isinstance(cmd, tuple):
                 if cmd[0] == 'agent':
-                    self._handle_agent(cmd[1], cmd[2], cmd[3])
+                    self._handle_agent(*cmd[1:])
                 elif cmd[0] == 'metrics':
                     self._handle_metrics(cmd[1])
                 else:
@@ -1735,11 +1964,44 @@ class PetApp:
                         self.set_alpha(val)
                     elif kind == 'hud_mode':
                         self.set_hud_mode(val)
+                    elif kind == 'sound_volume':
+                        self.set_volume(val)
+
+    def _go_sleep(self):
+        """菜单主动哄睡（用户触发，才会出声）。"""
+        self.idle_since = time.time() - SLEEP_AFTER_MS / 1000
+        self._set_state('sleep')
+        self.sleeping_anim = True
+        if not self._voice('sleep'):
+            self.say(random.choice(LINES['sleep']))
+
+    def toggle_sound(self):
+        self.set_sound(bool(self._sound_var.get()))
+
+    def set_sound_chatter(self, val):
+        self.cfg['sound_chatter'] = bool(val)
+        save_config(self.cfg)
+
+    def set_volume_choice(self):
+        self.set_volume(float(self._vol_var.get()))
+
+    def set_volume(self, val):
+        """设置音效音量（0~1）：立即生效，并试听一声。"""
+        val = max(0.0, min(1.0, float(val)))
+        self.sound.volume = val
+        self.cfg['sound_volume'] = val
+        save_config(self.cfg)
+        self._vol_var.set(val)
+        if val > 0 and not self.sound.enabled:
+            self.set_sound(True)
+        else:
+            self.sound.play_any(('aowu', 'hao'))     # 听一下当前音量
 
     def set_sound(self, val):
         self.sound.enabled = bool(val)
         self.cfg['sound'] = bool(val)
         save_config(self.cfg)
+        self._sound_var.set(bool(val))
         if val:
             self.sound.play_any(('aowu', 'aowu2'))
 
@@ -1803,6 +2065,11 @@ class PetApp:
         self.cfg['y'] = int(self.py)
         self.cfg['scale'] = self.scale
         save_config(self.cfg)
+        if self.usage_tail:
+            try:
+                self.usage_tail.save()      # 累计用量落盘，重启不丢
+            except Exception:
+                pass
         try:
             self.root.destroy()
         except Exception:

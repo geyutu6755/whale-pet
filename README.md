@@ -25,6 +25,9 @@
   摸头「主人～摸摸我的头嘛～」、投喂「小鱼干！」；Agent 任务完成她会说
   「任务完成啦！主人真棒！」，出错说「别急别急，人家再想想办法～」，
   等待批准说「需要主人批准啦～」；同类随机不重复，**整句语音与她头顶气泡的台词同步**
+- **音效可控且不吵**：默认开启，**开关 + 音量三档**（托盘菜单 / 右键菜单 / 配置）；
+  只有你动手（点击/连戳/抚摸/拖拽/投喂/玩耍/哄睡）或任务完成·出错·等待批准时才出声，
+  待机、入睡、散步一律安静；她说话时上一条没播完不会插队，也在 1.2 秒内不连开第二条
 - **自动出现**：Agent 会话启动（SessionStart 钩子）时自动拉起桌宠；没有钩子的
   Agent（Codex/Cursor…）由 MCP 工具调用时自动拉起
 - **可开关**：托盘菜单 / Agent MCP 工具 / 配置文件三处开关
@@ -80,9 +83,12 @@ python plugins/whale-pet/manage.py sound             # 依次试听 8 条音效
 ## 🔄 数据实时性
 
 面板数据**全自动实时更新**，无需任何手动刷新：
-- 每次回复/工具调用结束 → Agent 钩子自动上报用量 → 面板数字立即变化
+- 桌宠进程常驻采集：每 2 秒读一次 ZCode 的模型 I/O 记录（`~/.zcode/cli/rollout/*.jsonl`），
+  每次模型调用的用量到达即累计 → 面板数字当场变化
+- **累计量落盘**（`pet/assets/usage_state.json`，已 gitignore），重启桌宠不丢、也不重复计
 - 面板隐藏期间数据照常累计，点开即是最新值
-- 面板显示中若有新数据到达，当场刷新
+- 数据源可切：`pet_config.json` 的 `usage_source`（`auto` / `rollout` / `hooks`）；
+  其他宿主没有这份记录时自动回落宿主钩子
 
 ## 🎮 交互
 
@@ -94,7 +100,8 @@ python plugins/whale-pet/manage.py sound             # 依次试听 8 条音效
 | 按住拖动 | 被拎起来摇摆 | 「哎呀呀～」「哇！」 |
 | 连续戳 3 下以上 | 逐渐不耐烦 | 「哎呀！」「别、别戳啦！」 |
 | 连续戳 5 下 | 吓到 → 失落 | 「哼！」→「呜呜～」 |
-| 空闲 60 秒 | 自己睡着，点她唤醒 | 「困困啦～」/ 醒来「我在呢～」 |
+| 空闲 60 秒 | 自己睡着，点她唤醒 | 醒来「我在呢～」（入睡不发声） |
+| 右键「哄她睡觉」 | 立刻睡觉 | 「困困啦～」「晚安呀～」 |
 | 右键 / 托盘 | 菜单（打招呼/投喂/玩耍/转圈圈/摇头晃脑/隐藏/用量面板/**音效开关**/退出） | 投喂「小鱼干！」 |
 
 ## 🎵 音效
@@ -114,17 +121,24 @@ python plugins/whale-pet/manage.py sound             # 依次试听 8 条音效
 | 打招呼 · 出现 | 主人好～人家是鲸鱼娘！ / 来啦！ |
 | Agent 任务完成 | 任务完成啦！主人真棒！ / 搞定！夸夸人家嘛～ / 完美收工！撒花～ …（10 条） |
 | Agent 出错 · 失落 | 呜哇…这里出了点问题… / 别急别急，人家再想想办法～ / 呜呜…（9 条） |
-| Agent 思考 · 工作 | 正在努力思考中… / 工具在手，天下我有～ / 冲鸭！ / 加油呀！（12 条） |
+| Agent 思考 · 工作 ※ | 正在努力思考中… / 工具在手，天下我有～ / 冲鸭！ / 加油呀！（12 条） |
 | 等待批准 | 需要主人批准啦～ |
-| 待机闲聊 | 主人快看！人家超乖的～ / 进度过半啦，胜利在望～ …（14 条） |
+| 哄她睡觉（菜单） | 困困啦～ / 晚安呀～ |
+
+※ 思考/工作的碎碎念默认**关闭**（托盘菜单「工作中碎碎念」可开），免得你没点她也一直念叨。
+待机、入睡、散步**不出声**——只在她头顶冒字，不打扰你。
 
 **气泡会跟着她说的话走**：整句语音（≥6 字）播放时，头顶气泡同步显示那句台词，
 做到"嘴上说的"和"屏幕写的"一致；短促音（嗷呜/哎呀）仍搭配内置的 118 条台词。
 
 - 播放走**后台线程**（winsound 不支持「内存+异步」，只能这么绕），主循环零阻塞，
   60fps 动画不受影响；同名单音 90ms 内不重放，防止连点爆音
-- 一键静音：托盘「音效」菜单 / `pet_config.json` 的 `sound` / Agent 侧
-  `pet_control(sound_on|sound_off)` 或 `whale_cli.py sound_off`
+- **开关与音量**：托盘菜单「音效」勾选开关 + 「音量」小/中/大；**右键菜单**同样有；
+  配置存 `pet_config.json` 的 `sound`（默认 true）与 `sound_volume`（默认 0.7）；
+  Agent 侧可 `pet_control(sound_on|sound_off)` / `whale_cli.py sound_off` /
+  `whale_cli.py sound_volume 0.7`
+- 防"卡住重复"：同一句不会连着播（同事件避开最近 3 条、跨事件也避开），
+  上一条没播完时非点击类事件直接放弃这次出声，两条语音之间至少隔 1.2 秒
 - 素材来源与许可见 [`pet/assets/sounds/CREDITS.md`](plugins/whale-pet/pet/assets/sounds/CREDITS.md)：
   `short/` 为 Edge TTS 合成，`voice/` 来自社区项目（**非商业许可**）
 - **想要干净的授权链**：直接删掉 `pet/assets/sounds/voice/` 目录即可，桌宠会自动
@@ -169,10 +183,18 @@ python whale_cli.py sound_on | sound_off      # 音效开关
 
 ### 用量数据来源
 
-`Stop` / `PostToolUse` 钩子读取会话转写尾部（transcript JSONL）中最后一条 assistant
-消息的 `usage`（input/output/cache_read/cache_creation），上报给桌宠 HUD；
-输出速率按转写相邻时间戳估算。不同 Agent 的钩子载荷格式如有差异，
-可自行适配 `hooks/report_usage.py`，或由 Agent 直接调用 `pet_metrics` 上报。
+桌宠**优先读 ZCode 的模型 I/O 记录**（`~/.zcode/cli/rollout/model-io-*.jsonl`）：
+每条记录带真实 `usage`（inputTokens/outputTokens/cacheReadTokens）与耗时，
+桌宠每 2 秒 tail 一次，按 `completedAt` 水位线去重（重启不丢、不重复计）。
+
+> 为什么不用钩子：ZCode 侧钩子虽已注册（启动日志 `hookCount: 3`），但实测**没有任何
+> 执行记录**，HUD 长期为 0；模型 I/O 记录是同一份数据的更可靠来源，且不需宿主配合。
+> 钩子保留着并用 `source` 字段区分，其他宿主（没有该记录）会自动回落到钩子上报，
+> 可在 `pet_config.json` 用 `usage_source` 强制指定。
+
+`hooks/report_usage.py` 仍可用：它从钩子载荷或转写 JSONL 里取 `usage`
+（input/output/cache_read/cache_creation）；输出速率按记录耗时估算。
+Agent 也可直接调 `pet_metrics` 查看当前累计。
 
 ## 🛠️ 技术方案
 

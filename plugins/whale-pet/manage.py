@@ -506,6 +506,29 @@ def cmd_status():
               + ('' if voice_n else '（voice/ 已删，自动降级为纯短音效）'))
     else:
         print('  音效素材 : 缺失（运行 pet/import_sound_pack.py "<音效包>" 导入）')
+    # 音效开关/音量 + 用量采集（都存 pet_config.json）
+    try:
+        with open(CONFIG_PATH, encoding='utf-8') as f:
+            cfg = json.load(f)
+    except Exception:
+        cfg = {}
+    print(f'  音效设置 : {"开" if cfg.get("sound", True) else "关"} · '
+          f'音量 {cfg.get("sound_volume", 0.7):.2f} · '
+          f'工作中碎碎念 {"开" if cfg.get("sound_chatter") else "关"}')
+    src = str(cfg.get('usage_source') or 'auto')
+    if src == 'auto':
+        src = 'rollout（ZCode 模型 I/O）' if os.path.isdir(
+            os.path.join(HOME, '.zcode', 'cli', 'rollout')) else 'hooks（宿主钩子）'
+    tot = ''
+    try:
+        with open(os.path.join(PET_DIR, 'assets', 'usage_state.json'),
+                  encoding='utf-8') as f:
+            m = json.load(f).get('metrics') or {}
+        tok = m.get('input_tokens', 0) + m.get('output_tokens', 0)
+        tot = f' · 累计 {tok / 1e6:.2f}M tok / {m.get("responses", 0)} 次响应'
+    except Exception:
+        pass
+    print(f'  用量采集 : {src}{tot}')
     print()
     for key, agent in AGENTS.items():
         try:

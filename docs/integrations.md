@@ -119,7 +119,11 @@ python plugins/whale-pet/manage.py install mcp --config ~/.cursor/mcp.json  # �
 
 - **Agent 想自己说台词**：`pet_control(action="say", text="...")`，或 celebrate/error 时带
   `text` 参数——此时只补一个短反应音，不会抢话
-- **声音开关**：`pet_control(sound_on|sound_off)` / `whale_cli.py sound_off` / 托盘菜单
+- **声音开关与音量**：`pet_control(sound_on|sound_off)`、`whale_cli.py sound_off`、
+  `whale_cli.py sound_volume 0.7`（0~1）；托盘/右键菜单也有开关与三档音量（默认开、0.7）
+- **出声原则**：只有用户动手（点击/连戳/抚摸/拖拽/投喂/玩耍/哄睡）与
+  任务完成·出错·等待批准·打招呼才出声；待机、入睡、散步只冒字不出声。
+  思考/工作的碎碎念由 `sound_chatter`（默认关）控制
 - **素材来源与许可**：见 `pet/assets/sounds/CREDITS.md`（`short/` 为 Edge TTS 合成；
   `voice/` 来自社区项目，非商业许可——删掉该目录即退化为纯短音效，功能不受影响）
 
@@ -135,7 +139,9 @@ python whale_cli.py spin | headshake | trick
 python whale_cli.py metrics               # 查询用量
 python whale_cli.py state                 # 查询状态
 python whale_cli.py hide | show | quit
+python whale_cli.py sleep                 # 哄她睡觉
 python whale_cli.py sound_on | sound_off  # 音效开关
+python whale_cli.py sound_volume 0.7      # 音效音量 0~1
 ```
 
 ## 通用 HTTP（任何语言）
@@ -153,10 +159,14 @@ GET  /metrics  → 用量统计 JSON
 
 ## 用量 HUD 数据说明
 
+- **数据来源**：桌宠每 2 秒 tail ZCode 的 `~/.zcode/cli/rollout/model-io-*.jsonl`，
+  取每次模型调用的真实 `usage`；ZCode 侧钩子实测不触发，故不再依赖它
+  （其他宿主没有该记录时会自动回落钩子上报，或用 `usage_source` 强制指定）
 - **总 Token** = 累计输入 + 累计输出
 - **缓存命中率** = cache_read ÷ (cache_read + cache_creation + input)
-- **响应次数** = 收到多少次用量上报
-- **输出速率** = 本次输出 token ÷ 生成耗时（毫秒级精度，来自转写时间戳）
+- **响应次数** = 计入的模型调用次数
+- **输出速率** = 本次输出 token ÷ 记录耗时
+- 累计量写进 `pet/assets/usage_state.json`（已 gitignore）：**重启桌宠不丢、不重复计**
 
 面板默认「点击时显示 8 秒」，可在托盘菜单切换为常显/关闭；
-数据是实时的——每次上报到达就自动更新，无需手动刷新。
+数据是实时的——新记录到达（≤2 秒）即自动更新，无需手动刷新。

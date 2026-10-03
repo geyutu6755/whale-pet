@@ -122,6 +122,7 @@ def main():
 
     payload = {
         'type': 'usage',
+        'source': 'hook',          # 桌宠按 usage_source 只认一路，避免与 rollout 重复计
         'input_tokens': _i(usage.get('input_tokens')),
         'output_tokens': _i(usage.get('output_tokens')),
         'cache_read_tokens': _i(usage.get('cache_read_input_tokens')),

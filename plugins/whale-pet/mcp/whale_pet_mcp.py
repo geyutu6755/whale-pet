@@ -34,7 +34,7 @@ TOOLS = [
                         'disappointed=失落, think=思考陪伴(Agent思考中用), '
                         'working=工作姿态, wait=等待用户批准(Agent等待批准用), '
                         'welcome=欢迎, feed=投喂, play=玩耍, pat=摸摸, '
-                        'trick=随机小动作(转圈圈/摇头晃脑等), idle=回待机, '
+                        'trick=随机小动作(转圈圈/摇头晃脑等), idle=回待机, sleep=哄睡, '
                         'hide=隐藏, show=显示, hud_on/hud_off=用量面板开关, '
                         'sound_on/sound_off=音效开关'),
         'inputSchema': {
@@ -44,8 +44,8 @@ TOOLS = [
                     'type': 'string',
                     'enum': ['say', 'celebrate', 'error', 'disappointed', 'think',
                              'working', 'wait', 'welcome', 'feed', 'play', 'pat',
-                             'trick', 'idle', 'hide', 'show', 'hud_on', 'hud_off',
-                             'sound_on', 'sound_off'],
+                             'trick', 'idle', 'sleep', 'hide', 'show', 'hud_on',
+                             'hud_off', 'sound_on', 'sound_off'],
                     'description': '要执行的动作',
                 },
                 'text': {'type': 'string', 'description': 'say 动作的台词（可选）'},

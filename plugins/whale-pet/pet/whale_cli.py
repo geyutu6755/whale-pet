@@ -14,9 +14,11 @@
   python whale_cli.py feed | play | pat    # 互动
   python whale_cli.py spin | headshake | sway | hop | nod | trick  # 小动作（trick=随机）
   python whale_cli.py idle                 # 回到待机
+  python whale_cli.py sleep                # 哄她睡觉
   python whale_cli.py state                # 查询当前状态 (JSON)
   python whale_cli.py hide | show          # 隐藏/显示
   python whale_cli.py sound_on | sound_off # 开启/静音音效
+  python whale_cli.py sound_volume 0.7     # 设置音效音量（0~1）
   python whale_cli.py quit                 # 退出桌宠
 
 集成示例:
@@ -90,10 +92,16 @@ def main(argv):
                     event['ms'] = max(500, int(arg))
                 except ValueError:
                     pass
+        elif cmd == 'sound_volume':
+            try:
+                event['value'] = max(0.0, min(1.0, float(arg)))
+            except (TypeError, ValueError):
+                print('用法: whale_cli.py sound_volume 0.0~1.0', file=sys.stderr)
+                return 2
         elif cmd not in ('welcome', 'celebrate', 'error', 'disappointed',
-                         'feed', 'play', 'pat', 'idle', 'hide', 'show', 'quit',
-                         'spin', 'headshake', 'sway', 'hop', 'nod', 'trick',
-                         'sound_on', 'sound_off'):
+                         'feed', 'play', 'pat', 'idle', 'sleep', 'hide', 'show',
+                         'quit', 'spin', 'headshake', 'sway', 'hop', 'nod',
+                         'trick', 'sound_on', 'sound_off', 'sound_volume'):
             print(f'未知命令: {cmd}', file=sys.stderr)
             return 2
         print(json.dumps(_post(event), ensure_ascii=False))
