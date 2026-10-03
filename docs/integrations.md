@@ -23,17 +23,33 @@
 |-------|---------|---------|---------|
 | **ZCode** | 原生插件（添加本仓库为市场） | MCP 工具 + hooks 自启 | ✅ Stop/PostToolUse 钩子 |
 | **Claude Code** | 原生插件（本仓库含 `.claude-plugin` 双清单） | MCP 工具 + SessionStart 自启 | ✅ 同名钩子格式 |
-| **Codex** | 手动接入（MCP 配置 + 启动脚本） | MCP 工具 | ⚠️ 需用 CLI/HTTP 上报用量 |
-| **任何支持 MCP 的 Agent**（Cursor、Windsurf、Cline…） | 添加 MCP 服务器配置 | MCP 工具 | ⚠️ 同上 |
+| **Codex** | MCP 服务器（无钩子，工具调用时自动拉起桌宠） | MCP 工具 | ⚠️ 需用 CLI/HTTP 上报用量 |
+| **任何支持 MCP 的 Agent**（Cursor、Windsurf、Cline…） | 添加 MCP 服务器配置 | MCP 工具（自动拉起桌宠） | ⚠️ 同上 |
 | **仅能跑 Shell 的 Agent** | 无 | `whale_cli.py` | 可用 CLI 上报 |
 | **完全封闭的 Agent** | 无 | 手动启动桌宠即可陪伴 | ❌ |
 
+## 统一管理（一个入口管所有 Agent）
+
+```bash
+python plugins/whale-pet/manage.py                    # 状态总览
+python plugins/whale-pet/manage.py install <agent>    # zcode | claude | codex | mcp | all
+python plugins/whale-pet/manage.py uninstall <agent> [--purge]
+python plugins/whale-pet/manage.py start | stop | restart | sound
+```
+
+- **安装**幂等：市场/插件/MCP 已存在就跳过；`--from-github` 可用 GitHub 仓库作市场源
+- **卸载**除净：先优雅停掉桌宠（跨安装副本都能停——按进程命令行找到实际副本，
+  用该副本自己的 token 走桥退出），再移除插件/市场/MCP 注册；`--purge` 清本地产物
+- 改动任何 Agent 配置文件前备份为 `*.whale-bak`，只动 `whale-pet` 相关条目
+
 ## ZCode（原生）
 
+```bash
+python plugins/whale-pet/manage.py install zcode       # 命令行一条装好
 ```
-Plugin Marketplace → Add → Add Plugin Marketplace → 粘贴 geyutu6755/whale-pet（或本地仓库根）
-→ Personal → whale-pet-market → 鲸鱼娘桌宠 → Install
-```
+
+或图形界面：`Plugin Marketplace → Add → Add Plugin Marketplace → 粘贴 geyutu6755/whale-pet
+（或本地仓库根）→ Personal → whale-pet-market → 鲸鱼娘桌宠 → Install`
 
 随 Agent 自启（SessionStart 钩子）；用量由 Stop/PostToolUse 钩子自动上报。
 
@@ -42,43 +58,46 @@ Plugin Marketplace → Add → Add Plugin Marketplace → 粘贴 geyutu6755/whal
 本仓库同时包含 Claude Code 格式清单（`.claude-plugin/`），可直接作为插件市场：
 
 ```bash
-claude  # 或你使用的入口
-/plugin marketplace add geyutu6755/whale-pet
-/plugin install whale-pet@whale-pet-market
+python plugins/whale-pet/manage.py install claude      # 检测到 claude 命令时自动执行
+# 等价手动命令：
+claude plugin marketplace add geyutu6755/whale-pet
+claude plugin install whale-pet@whale-pet-market
 ```
 
 钩子事件名（SessionStart / Stop / PostToolUse）与转写格式（transcript JSONL 的
 `message.usage`）与 Claude Code 一致，用量 HUD 开箱可用。
 
-## Codex（手动接入）
+## Codex（MCP 接入，调用即自动拉起桌宠）
 
-1. **确保 Python 可用**，先手动启动一次桌宠：
+```bash
+python plugins/whale-pet/manage.py install codex       # 内部执行 codex mcp add
+```
 
-   ```bash
-   python "<仓库>/plugins/whale-pet/pet/whale_pet.py"
-   ```
+等价手动命令：
 
-2. **添加 MCP 服务器**：编辑 `~/.codex/config.toml`：
+```bash
+codex mcp add whale-pet -- python "<仓库>/plugins/whale-pet/mcp/whale_pet_mcp.py"
+```
 
-   ```toml
-   [mcp_servers.whale-pet]
-   command = "python"
-   args = ["<仓库路径>/plugins/whale-pet/mcp/whale_pet_mcp.py"]
-   ```
+Codex 没有插件钩子：由 **MCP 服务器在你调用工具时自动拉起桌宠**（首次调用约 4-6 秒，
+之后即时）。不想自动拉起可在 `pet_config.json` 设 `"mcp_autostart": false`。
 
-   重启 Codex 后即可使用 `pet_control` / `pet_metrics` / `pet_state` 三个工具。
+**用量上报**（可选）：Codex 无兼容钩子时，在任务结束时调用：
 
-3. **用量上报**（可选）：Codex 无兼容钩子时，在任务结束时调用：
-
-   ```bash
-   python "<仓库>/plugins/whale-pet/pet/whale_cli.py" celebrate   # 庆祝
-   curl -X POST http://127.0.0.1:37821/metrics \
-        -H "Content-Type: application/json" \
-        -H "X-Token: $(cat "<仓库>/plugins/whale-pet/pet/assets/bridge_token")" \
-        -d '{"input_tokens":1200,"output_tokens":350,"cache_read_tokens":8800,"duration_ms":5200}'
-   ```
+```bash
+python "<仓库>/plugins/whale-pet/pet/whale_cli.py" celebrate   # 庆祝
+curl -X POST http://127.0.0.1:37821/metrics \
+     -H "Content-Type: application/json" \
+     -H "X-Token: $(cat "<仓库>/plugins/whale-pet/pet/assets/bridge_token")" \
+     -d '{"input_tokens":1200,"output_tokens":350,"cache_read_tokens":8800,"duration_ms":5200}'
+```
 
 ## 通用 MCP 配置（JSON 版，适用于大多数 Agent）
+
+```bash
+python plugins/whale-pet/manage.py install mcp                          # 打印 JSON 片段
+python plugins/whale-pet/manage.py install mcp --config ~/.cursor/mcp.json  # 直接合并（自动备份）
+```
 
 ```json
 {
@@ -90,6 +109,12 @@ claude  # 或你使用的入口
   }
 }
 ```
+
+## 音效
+
+点击她会「嗷呜」、连戳会「哎呀」，庆祝/出错/失落/投喂各有专属音效（8 条原创合成，
+见 `pet/make_sounds.py`）。Agent 侧可 `pet_control(sound_on/sound_off)` 或
+`whale_cli.py sound_off` 控制；托盘菜单「音效」可一键静音。
 
 ## 通用 CLI（任何能执行命令的 Agent/脚本）
 
@@ -103,6 +128,7 @@ python whale_cli.py spin | headshake | trick
 python whale_cli.py metrics               # 查询用量
 python whale_cli.py state                 # 查询状态
 python whale_cli.py hide | show | quit
+python whale_cli.py sound_on | sound_off  # 音效开关
 ```
 
 ## 通用 HTTP（任何语言）

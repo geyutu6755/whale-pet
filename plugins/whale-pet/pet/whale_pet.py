@@ -18,6 +18,7 @@
     DeepSeek Harness / Codex / ZCode 可通过 whale_cli.py 或 HTTP 推送事件
 """
 import ctypes
+import io
 import json
 import math
 import os
@@ -27,6 +28,7 @@ import secrets
 import sys
 import threading
 import time
+import wave
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 import tkinter as tk
@@ -40,6 +42,7 @@ from PIL import Image, ImageDraw, ImageFont, ImageTk
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 ASSETS = os.path.join(BASE_DIR, 'assets')
 SHEETS_DIR = os.path.join(ASSETS, 'sheets')
+SOUNDS_DIR = os.path.join(ASSETS, 'sounds')
 CONFIG_PATH = os.path.join(BASE_DIR, 'pet_config.json')
 TOKEN_PATH = os.path.join(ASSETS, 'bridge_token')
 KEY_RGB = (255, 0, 254)          # 透明键色（transparentcolor）
@@ -171,7 +174,8 @@ def load_font(size, bold=False):
 
 def load_config():
     cfg = {'x': None, 'y': None, 'scale': 0.9, 'alpha': 1.0, 'topmost': True,
-           'bridge_enabled': True, 'bridge_port': BRIDGE_PORT_DEFAULT}
+           'bridge_enabled': True, 'bridge_port': BRIDGE_PORT_DEFAULT,
+           'sound': True, 'sound_volume': 0.8}
     try:
         with open(CONFIG_PATH, 'r', encoding='utf-8') as f:
             cfg.update(json.load(f))
@@ -499,6 +503,83 @@ class BridgeServer:
 
 
 # --------------------------------------------------------------------------
+# 音效：后台线程播放内存 WAV（音量直接缩放 PCM，无第三方依赖）
+# --------------------------------------------------------------------------
+class SoundEngine:
+    """assets/sounds/*.wav 播放器。
+
+    - winsound 不允许「内存 + 异步」组合，故在后台线程里做同步播放：
+      主循环（60fps）零阻塞，这正是丝滑度的前提
+    - 音量按需缩放 16bit PCM 后缓存；同名单音 90ms 内不重放，防止连点爆音
+    - 任何异常静默降级：没有音效文件 / 非 Windows 时桌宠照常运行
+    """
+
+    MIN_GAP_S = 0.09
+
+    def __init__(self, enabled=True, volume=0.8):
+        self.dir = SOUNDS_DIR
+        self.enabled = bool(enabled)
+        self.volume = max(0.0, min(1.0, float(volume)))
+        self._cache = {}
+        self._playing = None          # 保持引用：异步播放期间缓冲必须存活
+        self._last_at = {}
+        try:
+            import winsound
+            self._ws = winsound
+        except Exception:
+            self._ws = None
+
+    def _data(self, name):
+        key = (name, round(self.volume, 2))
+        data = self._cache.get(key)
+        if data is not None:
+            return data
+        path = os.path.join(self.dir, name + '.wav')
+        try:
+            with wave.open(path, 'rb') as w:
+                nch, sw, fr = w.getnchannels(), w.getsampwidth(), w.getframerate()
+                raw = w.readframes(w.getnframes())
+            if sw == 2:
+                arr = np.frombuffer(raw, dtype='<i2').astype(np.float32) * self.volume
+                raw = np.clip(arr, -32768.0, 32767.0).astype('<i2').tobytes()
+            buf = io.BytesIO()
+            with wave.open(buf, 'wb') as out:
+                out.setnchannels(nch)
+                out.setsampwidth(sw)
+                out.setframerate(fr)
+                out.writeframes(raw)
+            data = buf.getvalue()
+        except Exception:
+            data = b''
+        self._cache[key] = data
+        return data
+
+    def play_random(self, names):
+        return self.play(random.choice(list(names)))
+
+    def play(self, name, force=False):
+        if not self.enabled or self._ws is None:
+            return False
+        now = time.time()
+        if not force and now - self._last_at.get(name, 0.0) < self.MIN_GAP_S:
+            return False
+        data = self._data(name)
+        if not data:
+            return False
+        self._last_at[name] = now
+        self._playing = data          # 播放期间保持缓冲存活
+        threading.Thread(target=self._play_blocking, args=(data,),
+                         daemon=True).start()
+        return True
+
+    def _play_blocking(self, data):
+        try:
+            self._ws.PlaySound(data, self._ws.SND_MEMORY | self._ws.SND_NODEFAULT)
+        except Exception:
+            pass
+
+
+# --------------------------------------------------------------------------
 # 桌宠主程序
 # --------------------------------------------------------------------------
 class PetApp:
@@ -526,6 +607,8 @@ class PetApp:
         self.walk = None
         self.sleeping_anim = False
         self.hidden = False
+        self.sound = SoundEngine(self.cfg.get('sound', True),
+                                 self.cfg.get('sound_volume', 0.8))
         self.saved_pos = None
         self.particles = []
         self.bubble = None
@@ -687,6 +770,12 @@ class PetApp:
         self.root.bind('<Escape>', lambda e: self.quit())
 
     # ---------------- 交互 ----------------
+    def _sfx(self, *names):
+        """播放音效（隐藏时保持安静）。"""
+        if self.hidden:
+            return
+        self.sound.play_random(names)
+
     def _note_poke(self):
         """连戳计数；达到阈值触发惊吓。返回是否触发了 error。"""
         now = time.time()
@@ -696,6 +785,7 @@ class PetApp:
             self.pokes.clear()
             self._set_state('error', ERROR_MS / 1000)
             self.say(random.choice(LINES['error']))
+            self._sfx('aiya1')
             return True
         return False
 
@@ -722,6 +812,7 @@ class PetApp:
             self._interact()
             self._set_state('play', TRANSIENT_MS / 1000)
             self.say(random.choice(LINES['play']))
+            self._sfx('yay')
             self.drag = None
             return
         self.drag = {'x': e.x_root, 'y': e.y_root, 'sx': self.sx, 'sy': self.sy,
@@ -742,6 +833,7 @@ class PetApp:
             if was_sleeping:
                 self.drag['wake_on_release'] = True
             self.say(random.choice(LINES['drag']))
+            self._sfx('aowu3')
         if self.drag['moved']:
             self._move_window(self.drag['sx'] + dx, self.drag['sy'] + dy)
             self.flip = -1 if dx > 0 else 1
@@ -756,6 +848,7 @@ class PetApp:
             self._interact()
             self._set_state('joy')
             self.say(random.choice(LINES['pet']))
+            self._sfx('aowu2')
         if d['petting'] and now >= d['heart_at']:
             d['heart_at'] = now + 0.45
             self._spawn_hearts(1)
@@ -780,11 +873,16 @@ class PetApp:
             self._spawn_hearts(3)
             self.say(random.choice(LINES['pet']))
             return
-        if self._interact():
+        if self._interact():          # 刚被叫醒
+            self._sfx('aowu2')
             return
         self._set_state('joy', JOY_MS / 1000)
         self._spawn_hearts(3)
         self.say(random.choice(LINES['poke']))
+        if len(self.pokes) >= 3:      # 戳太多次：转为抱怨的「哎呀」
+            self._sfx('aiya2')
+        else:
+            self._sfx('aowu1', 'aowu2', 'aowu3')
 
     def _on_menu(self, e):
         m = tk.Menu(self.root, tearoff=0, font=('Microsoft YaHei', 9))
@@ -1362,6 +1460,8 @@ class PetApp:
                                      checked=lambda i: self.hud_mode == 'off'))),
                 pystray.MenuItem('置顶窗口', cmd('topmost'),
                                  checked=lambda i: bool(self.cfg.get('topmost'))),
+                pystray.MenuItem('音效', cmd('sound'),
+                                 checked=lambda i: self.sound.enabled),
                 pystray.MenuItem('大小', pystray.Menu(
                     *(pystray.MenuItem(k, cmd(('scale', v)),
                                        checked=lambda i, v=v: abs(self.scale - v) < 1e-6)
@@ -1411,10 +1511,12 @@ class PetApp:
                 self._set_state('joy', JOY_MS / 1000)
                 self._spawn_hearts(3)
                 self.say(random.choice(LINES['pet']))
+                self._sfx('aowu2')
             elif etype in ('feed', 'play'):
                 self._interact()
                 self._set_state(etype, TRANSIENT_MS / 1000)
                 self.say(random.choice(LINES[etype]))
+                self._sfx('bubble' if etype == 'feed' else 'yay')
             elif etype == 'idle':
                 self._interact()
                 self._set_state('idle')
@@ -1432,6 +1534,10 @@ class PetApp:
                 self.set_hud_mode('auto')
             elif etype == 'hud':
                 self.flash_hud()
+            elif etype == 'sound_on':
+                self.set_sound(True)
+            elif etype == 'sound_off':
+                self.set_sound(False)
             elif etype in AGENT_STATE_MS:
                 self._interact()
                 dur = (ms or AGENT_STATE_MS[etype]) / 1000.0
@@ -1447,11 +1553,13 @@ class PetApp:
                 self._interact()
                 self._set_state(etype, (ms or (WELCOME_MS if etype == 'welcome' else CELEBRATE_MS)) / 1000)
                 self.say(text or random.choice(LINES[etype]))
+                self._sfx('aowu1' if etype == 'welcome' else 'yay')
                 if etype == 'celebrate':
                     self._spawn_hearts(2)
             elif etype in ('error', 'disappointed'):
                 self._set_state(etype, (ms or (ERROR_MS if etype == 'error' else DISAPPOINTED_MS)) / 1000)
                 self.say(text or random.choice(LINES[etype]))
+                self._sfx('aiya1' if etype == 'error' else 'sad')
         except Exception as e:
             if DEBUG:
                 print(f'[agent] {etype} 处理失败: {e}', flush=True)
@@ -1470,14 +1578,17 @@ class PetApp:
                 self._set_state('welcome', WELCOME_MS / 1000)
                 self.say(random.choice(LINES['hello']))
                 self._spawn_hearts(2)
+                self._sfx('aowu1')
             elif cmd == 'feed':
                 self._interact()
                 self._set_state('eat', TRANSIENT_MS / 1000)
                 self.say(random.choice(LINES['feed']))
+                self._sfx('bubble')
             elif cmd == 'play':
                 self._interact()
                 self._set_state('play', TRANSIENT_MS / 1000)
                 self.say(random.choice(LINES['play']))
+                self._sfx('yay')
             elif cmd in ('spin', 'headshake', 'sway', 'hop', 'nod', 'trick'):
                 self._interact()
                 if cmd == 'trick':
@@ -1488,6 +1599,8 @@ class PetApp:
                 self.tray_hide()
             elif cmd == 'topmost':
                 self.set_topmost(not bool(self.cfg.get('topmost')))
+            elif cmd == 'sound':
+                self.set_sound(not self.sound.enabled)
             elif cmd == 'hud_toggle':
                 self.set_hud_mode('on' if self.hud_mode == 'off' else
                                   ('off' if self.hud_mode == 'on' else 'on'))
@@ -1505,11 +1618,19 @@ class PetApp:
                     elif kind == 'hud_mode':
                         self.set_hud_mode(val)
 
+    def set_sound(self, val):
+        self.sound.enabled = bool(val)
+        self.cfg['sound'] = bool(val)
+        save_config(self.cfg)
+        if val:
+            self.sound.play('aowu1', force=True)
+
     def tray_hide(self):
         if self.hidden:
             self.hidden = False
             self._move_window(self.saved_pos[0], self.saved_pos[1])
             self.say(random.choice(LINES['hello']))
+            self._sfx('aowu2')
         else:
             self.saved_pos = (self.sx, self.sy)
             self.hidden = True
@@ -1553,6 +1674,7 @@ class PetApp:
 
     def _welcome(self):
         self._set_state('welcome', WELCOME_MS / 1000)
+        self._sfx('aowu1')
         hour = time.localtime().tm_hour
         key = 'welcome' if (hour >= 18 or hour < 11) else 'hello'
         self.root.after(500, lambda: self.say(random.choice(LINES[key])))

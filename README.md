@@ -21,13 +21,37 @@
   - 显示模式三档：点击时显示 / 始终显示 / 关闭（托盘菜单或 MCP `hud_on/hud_off/hud_auto`）
 - **Agent 联动**：MCP 工具让 Agent 在任务完成时庆祝、出错时惊吓、思考时陪伴、
   等待批准时提醒
-- **自动出现**：Agent 会话启动（SessionStart 钩子）时自动拉起桌宠，无需手动操作
+- **音效**：点她会「嗷呜」，连戳会「哎呀」；庆祝「呜呼」、出错「哎呀！」、失落「呜…」、
+  投喂「咕噜咕噜」——8 条**原创合成**音效（后台线程播放，不卡 60fps 动画），
+  托盘一键静音
+- **自动出现**：Agent 会话启动（SessionStart 钩子）时自动拉起桌宠；没有钩子的
+  Agent（Codex/Cursor…）由 MCP 工具调用时自动拉起
 - **可开关**：托盘菜单 / Agent MCP 工具 / 配置文件三处开关
+- **装得干净卸得干净**：`manage.py` 一个入口管理所有 Agent 的安装/卸载，
+  卸载先停进程再摘注册，不留孤儿条目
 - **漫游视口**：角色在窗口内 60fps 移动，越界才平移窗口，拖拽 1:1 跟随不卡顿
 
-## 📦 安装（ZCode）
+## 📦 安装 / 卸载
 
-**方式一（推荐，直接装 GitHub 版）**
+### 一个入口管所有 Agent（推荐）
+
+```bash
+python plugins/whale-pet/manage.py              # 状态总览（桌宠进程 + 各 Agent 装没装）
+python plugins/whale-pet/manage.py install zcode    # 装到 ZCode（原生插件）
+python plugins/whale-pet/manage.py install codex     # 装到 Codex（注册 MCP，调用时自动拉起桌宠）
+python plugins/whale-pet/manage.py install all       # 所有检测到的 Agent 一次装好
+python plugins/whale-pet/manage.py uninstall zcode   # 卸载（先停桌宠 → 再摘注册 → 不留残渣）
+python plugins/whale-pet/manage.py uninstall all --purge   # 全卸 + 清理本地产物
+python plugins/whale-pet/manage.py start | stop | restart  # 启停桌宠
+python plugins/whale-pet/manage.py sound             # 依次试听 8 条音效
+```
+
+卸载是「除净」语义：先优雅退出桌宠进程（跨安装副本都能停），再移除插件/市场/MCP
+注册，`--purge` 额外清掉 `pet_config.json`、`bridge_token`、`__pycache__`；
+改任何 Agent 配置文件前都会备份成 `*.whale-bak`。
+
+### ZCode 图形界面安装
+
 1. ZCode → 左下 **Plugin Marketplace → Add → Add Plugin Marketplace**
 2. 粘贴本仓库地址：`geyutu6755/whale-pet`（或完整 `https://github.com/geyutu6755/whale-pet`）
 3. **Personal → whale-pet-market → 鲸鱼娘桌宠 → Install**
@@ -40,13 +64,13 @@
 
 ## 🤝 适配哪些 Agent？
 
-| Agent | 支持方式 |
-|-------|---------|
-| **ZCode** | 原生插件（本仓库即插件市场，添加后安装即可） |
-| **Claude Code** | 原生插件（仓库含 `.claude-plugin` 双格式：`/plugin marketplace add geyutu6755/whale-pet`） |
-| **Codex** | 手动接入：MCP 配置（`~/.codex/config.toml`）+ 启动脚本，见 [docs/integrations.md](docs/integrations.md) |
-| **其他支持 MCP 的 Agent**（Cursor/Windsurf/Cline…） | 添加 MCP 服务器配置（JSON 片段见文档） |
-| **任何能跑命令的 Agent** | `whale_cli.py` CLI / HTTP 桥 |
+| Agent | 支持方式 | 一条命令安装 |
+|-------|---------|-------------|
+| **ZCode** | 原生插件（本仓库即插件市场） | `manage.py install zcode` |
+| **Claude Code** | 原生插件（仓库含 `.claude-plugin` 双格式） | `manage.py install claude` |
+| **Codex** | MCP 服务器（无钩子，工具调用时自动拉起桌宠） | `manage.py install codex` |
+| **其他支持 MCP 的 Agent**（Cursor/Windsurf/Cline…） | MCP JSON 片段 | `manage.py install mcp [--config 配置文件]` |
+| **任何能跑命令的 Agent** | `whale_cli.py` CLI / HTTP 桥 | 无需安装 |
 
 桌宠核心与 Agent 完全解耦：独立进程 + 本地 HTTP 桥（`127.0.0.1:37821`）
 + CLI + MCP 服务器，换 Agent 不用换桌宠。完整接入说明见
@@ -61,15 +85,36 @@
 
 ## 🎮 交互
 
-| 操作 | 反应 |
-|------|------|
-| 快速点击 | 开心 + 飘爱心 |
-| 双击 | 玩耍抛球 |
-| 按住不动 0.5s | 抚摸（眯眼笑 + 爱心上浮） |
-| 按住拖动 | 被拎起来摇摆 |
-| 连续戳 5 下 | 吓到 → 失落 |
-| 空闲 60 秒 | 自己睡着，点她唤醒 |
-| 右键 | 菜单（打招呼/投喂/玩耍/转圈圈/摇头晃脑/隐藏/用量面板/退出） |
+| 操作 | 反应 | 音效 |
+|------|------|------|
+| 快速点击 | 开心 + 飘爱心 | 「嗷呜」随机变体 |
+| 双击 | 玩耍抛球 | 「呜呼」 |
+| 按住不动 0.5s | 抚摸（眯眼笑 + 爱心上浮） | 软糯「嗷呜」 |
+| 按住拖动 | 被拎起来摇摆 | 短促「嗷呜」 |
+| 连续戳 3 下以上 | 逐渐不耐烦 | 「哎呀」（抱怨） |
+| 连续戳 5 下 | 吓到 → 失落 | 「哎呀！」→「呜…」 |
+| 空闲 60 秒 | 自己睡着，点她唤醒 | 醒来轻哼 |
+| 右键 / 托盘 | 菜单（打招呼/投喂/玩耍/转圈圈/摇头晃脑/隐藏/用量面板/**音效开关**/退出） | 投喂「咕噜咕噜」 |
+
+## 🎵 音效
+
+8 条音效全部**原创程序化合成**（`pet/make_sounds.py`，声门源 + 共振峰滤波），
+不含任何外部素材，可安全开源分发：
+
+| 文件 | 内容 | 触发 |
+|------|------|------|
+| `aowu1/2/3.wav` | 嗷呜（招牌叫 / 撒娇 / 短促惊喜） | 点击、抚摸、拖拽、唤醒 |
+| `aiya1/2.wav` | 哎呀（受惊 / 抱怨） | 连戳、Agent 报错 |
+| `yay.wav` | 呜呼（庆祝 whoop） | 双击玩耍、任务完成庆祝 |
+| `sad.wav` | 呜…（失落下垂） | 任务失败失落 |
+| `bubble.wav` | 咕噜咕噜（泡泡+吞咽） | 投喂 |
+
+- 播放走后台线程 + 内存 WAV（winsound 不支持「内存+异步」，故用线程），
+  主循环零阻塞，动画不受影响
+- 托盘菜单「音效」一键静音；配置 `pet_config.json` 的 `sound` / `sound_volume`
+- Agent 侧可用 `pet_control(sound_on/sound_off)` 或 `whale_cli.py sound_off` 控制
+- 想改音色：编辑 `pet/make_sounds.py` 里的音高/共振峰轨迹后
+  `python pet/make_sounds.py` 重新生成，`--play` 可试听
 
 ## 🤖 Agent 集成
 
@@ -77,7 +122,7 @@
 
 | 工具 | 说明 |
 |------|------|
-| `pet_control` | action 枚举：say/celebrate/error/disappointed/think/working/wait/welcome/feed/play/pat/trick/idle/hide/show/hud_on/hud_off |
+| `pet_control` | action 枚举：say/celebrate/error/disappointed/think/working/wait/welcome/feed/play/pat/trick/idle/hide/show/hud_on/hud_off/sound_on/sound_off |
 | `pet_metrics` | 查询 Token 用量统计 |
 | `pet_state` | 查询桌宠状态 |
 
@@ -103,6 +148,7 @@ curl http://127.0.0.1:37821/state -H "X-Token: $TOKEN"
 ```bash
 python whale_cli.py say "部署完成！"
 python whale_cli.py celebrate | error | think 10000 | wait | metrics | state
+python whale_cli.py sound_on | sound_off      # 音效开关
 ```
 
 ### 用量数据来源
@@ -125,19 +171,23 @@ python whale_cli.py celebrate | error | think 10000 | wait | metrics | state
 
 ```
 plugins/whale-pet/
+├── manage.py                   # 统一管理器：安装/卸载/状态/启停/试听
 ├── .zcode-plugin/plugin.json   # 插件清单
+├── .claude-plugin/plugin.json  # Claude Code 清单（双格式）
 ├── hooks/hooks.json            # SessionStart 自启 + Stop/PostToolUse 用量上报
 ├── hooks/launch_pet.py         # 分离进程启动桌宠
 ├── hooks/report_usage.py       # 转写用量提取上报
 ├── mcp/.mcp.json               # MCP 服务器声明
-├── mcp/whale_pet_mcp.py        # MCP 实现（stdio，零依赖）
+├── mcp/whale_pet_mcp.py        # MCP 实现（stdio，零依赖，调用时自动拉起桌宠）
 ├── skills/whale-pet/SKILL.md   # Agent 使用指南
 ├── commands/pet.md             # /pet 命令
 └── pet/                        # 桌宠本体
-    ├── whale_pet.py            # 主程序
+    ├── whale_pet.py            # 主程序（含音效引擎）
     ├── whale_cli.py            # CLI
+    ├── make_sounds.py          # 音效合成器（原创，可重新生成）
     ├── make_assets.py          # 图标生成
-    └── assets/                 # 精灵图/图标/bridge_token
+    └── assets/                 # 精灵图/图标/音效/bridge_token
+        └── sounds/*.wav        # 8 条音效
 ```
 
 ## 📜 素材来源与许可

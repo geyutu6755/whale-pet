@@ -12,12 +12,15 @@
 """
 import json
 import os
+import subprocess
 import sys
+import time
 import urllib.request
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 PLUGIN_ROOT = os.path.dirname(HERE)
 PET_DIR = os.path.join(PLUGIN_ROOT, 'pet')
+PET_SCRIPT = os.path.join(PET_DIR, 'whale_pet.py')
 TOKEN_PATH = os.path.join(PET_DIR, 'assets', 'bridge_token')
 CONFIG_PATH = os.path.join(PET_DIR, 'pet_config.json')
 
@@ -32,7 +35,8 @@ TOOLS = [
                         'working=工作姿态, wait=等待用户批准(Agent等待批准用), '
                         'welcome=欢迎, feed=投喂, play=玩耍, pat=摸摸, '
                         'trick=随机小动作(转圈圈/摇头晃脑等), idle=回待机, '
-                        'hide=隐藏, show=显示, hud_on/hud_off=用量面板开关'),
+                        'hide=隐藏, show=显示, hud_on/hud_off=用量面板开关, '
+                        'sound_on/sound_off=音效开关'),
         'inputSchema': {
             'type': 'object',
             'properties': {
@@ -40,7 +44,8 @@ TOOLS = [
                     'type': 'string',
                     'enum': ['say', 'celebrate', 'error', 'disappointed', 'think',
                              'working', 'wait', 'welcome', 'feed', 'play', 'pat',
-                             'trick', 'idle', 'hide', 'show', 'hud_on', 'hud_off'],
+                             'trick', 'idle', 'hide', 'show', 'hud_on', 'hud_off',
+                             'sound_on', 'sound_off'],
                     'description': '要执行的动作',
                 },
                 'text': {'type': 'string', 'description': 'say 动作的台词（可选）'},
@@ -91,9 +96,51 @@ def _bridge_request(method, path, obj=None):
         return json.loads(resp.read().decode('utf-8'))
 
 
+def ensure_pet(wait=8.0):
+    """桌宠没在跑就拉起来 —— 没有插件钩子的 Agent（Codex/Cursor…）即装即用。
+
+    由 pet_config.json 的 "mcp_autostart" 控制（默认开）。
+    """
+    try:
+        _bridge_request('GET', '/state')
+        return True
+    except Exception:
+        pass
+    try:
+        with open(CONFIG_PATH, encoding='utf-8') as f:
+            if not json.load(f).get('mcp_autostart', True):
+                return False
+    except Exception:
+        pass
+    if not os.path.exists(PET_SCRIPT):
+        return False
+    python = sys.executable
+    if python.lower().endswith('pythonw.exe') and os.path.exists(
+            python[:-len('pythonw.exe')] + 'python.exe'):
+        python = python[:-len('pythonw.exe')] + 'python.exe'
+    flags = 0x00000008 | 0x00000200 if os.name == 'nt' else 0
+    try:
+        subprocess.Popen([python, PET_SCRIPT], cwd=PET_DIR, creationflags=flags,
+                         close_fds=True, stdout=subprocess.DEVNULL,
+                         stderr=subprocess.DEVNULL, stdin=subprocess.DEVNULL)
+    except Exception:
+        return False
+    t0 = time.time()
+    while time.time() - t0 < wait:
+        time.sleep(0.25)
+        try:
+            _bridge_request('GET', '/state')
+            return True
+        except Exception:
+            pass
+    return False
+
+
 def call_tool(name, args):
     args = args or {}
     try:
+        if name == 'pet_control' and args.get('action') != 'quit':
+            ensure_pet()
         if name == 'pet_control':
             action = args.get('action', 'idle')
             payload = {'type': action}
@@ -119,9 +166,10 @@ def call_tool(name, args):
                                  'text': json.dumps(st, ensure_ascii=False)}]}
         return {'content': [{'type': 'text', 'text': f'未知工具: {name}'}]}
     except Exception as e:
-        return {'content': [{'type': 'text',
-                             'text': f'鲸鱼娘桌宠未运行或桥接失败（{e}）。'
-                                     f'可尝试重新打开 Agent 或手动运行 whale_pet.py。'}]}
+            return {'content': [{'type': 'text',
+                                 'text': f'鲸鱼娘桌宠未运行或桥接失败（{e}）。'
+                                         f'调用 pet_control（如 working）可唤起她，'
+                                         f'或在插件目录运行 manage.py start。'}]}
 
 
 def handle(msg):

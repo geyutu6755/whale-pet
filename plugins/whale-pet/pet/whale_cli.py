@@ -16,6 +16,7 @@
   python whale_cli.py idle                 # 回到待机
   python whale_cli.py state                # 查询当前状态 (JSON)
   python whale_cli.py hide | show          # 隐藏/显示
+  python whale_cli.py sound_on | sound_off # 开启/静音音效
   python whale_cli.py quit                 # 退出桌宠
 
 集成示例:
@@ -91,7 +92,8 @@ def main(argv):
                     pass
         elif cmd not in ('welcome', 'celebrate', 'error', 'disappointed',
                          'feed', 'play', 'pat', 'idle', 'hide', 'show', 'quit',
-                         'spin', 'headshake', 'sway', 'hop', 'nod', 'trick'):
+                         'spin', 'headshake', 'sway', 'hop', 'nod', 'trick',
+                         'sound_on', 'sound_off'):
             print(f'未知命令: {cmd}', file=sys.stderr)
             return 2
         print(json.dumps(_post(event), ensure_ascii=False))
