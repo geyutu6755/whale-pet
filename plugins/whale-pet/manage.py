@@ -232,9 +232,10 @@ def stop_pet():
 
 
 def purge_state():
-    """清掉本地产物（不含仓库/插件本体）。"""
+    """清掉本地产物（不含仓库/插件本体与音效素材）。"""
     removed = []
-    for p in (CONFIG_PATH, TOKEN_PATH):
+    for p in (CONFIG_PATH, TOKEN_PATH,
+              os.path.join(PET_DIR, 'assets', 'usage_state.json')):
         if os.path.exists(p):
             try:
                 os.remove(p)
@@ -305,6 +306,8 @@ class ZCode:
         installed = f'{NAME}@{MARKET}' in self._enabled()
         if not markets and not installed:
             return DASH, '未安装'
+        if installed and not markets:          # 半残状态：插件在、市场没了
+            return NO, '插件已启用但市场记录丢失（跑 install zcode 可重新登记）'
         src = ''
         if markets:
             s = markets[0].get('source', {})
@@ -342,9 +345,15 @@ class ZCode:
         cli, _ = find_zcode_cli()
         if not cli:
             return False, '未找到 ZCode CLI，无法自动卸载'
-        msgs = []
-        rc, out = run(cli + ['plugins', 'uninstall', NAME])
-        msgs.append('插件已卸载' if rc == 0 else f'插件卸载：{out.strip()[:120]}')
+        if f'{NAME}@{MARKET}' not in self._enabled() and \
+                not [m for m in self._marketplaces() if m.get('id') == MARKET]:
+            return True, '本来就没装'
+        # 非交互式 shell 必须 --force，否则 CLI 会拒绝卸载（实测踩过）
+        rc, out = run(cli + ['plugins', 'uninstall', NAME, '--force'])
+        if rc != 0:
+            # 插件没卸干净就绝不动市场，避免留下"插件在、市场没了"的半残状态
+            return False, f'插件卸载失败（市场保持不变）：{out.strip()[:160]}'
+        msgs = ['插件已卸载']
         if not keep_market:
             rc, out = run(cli + ['plugins', 'marketplace', 'remove', MARKET])
             msgs.append('市场已移除' if rc == 0 else f'市场移除：{out.strip()[:120]}')
@@ -585,6 +594,11 @@ def cmd_uninstall(agent, purge=False, keep_market=False, config_path=None):
             ok, msg = False, str(e)
         print(f'  {obj.label:<12}{OK if ok else NO} {msg}')
     if purge:
+        # ZCode CLI 卸载后会把插件缓存留在磁盘上（占好几 MB），这里一并清掉
+        cache = os.path.join(HOME, '.zcode', 'cli', 'plugins', 'cache', MARKET)
+        if os.path.isdir(cache):
+            shutil.rmtree(cache, ignore_errors=True)
+            print(f'  清插件缓存  {OK if not os.path.isdir(cache) else NO} {cache}')
         removed = purge_state()
         print(f'  清本地产物  {OK if removed else DASH} '
               f'{"、".join(removed) if removed else "没有需要清理的"}')
