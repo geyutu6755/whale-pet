@@ -79,6 +79,10 @@ python plugins/whale-pet/manage.py install codex       # 内部执行 codex mcp 
 codex mcp add whale-pet -- python "<仓库>/plugins/whale-pet/mcp/whale_pet_mcp.py"
 ```
 
+注册的是 **`~/.whale-pet/mcp_launcher.py`**（由 `manage.py` 写入的稳定启动器），
+不是某个具体安装副本的路径——这样插件升级换了版本目录也不会失效；
+启动器每次运行会挑最新的那份安装副本，找不到时安静退出。
+
 Codex 没有插件钩子：由 **MCP 服务器在你调用工具时自动拉起桌宠**（首次调用约 4-6 秒，
 之后即时）。不想自动拉起可在 `pet_config.json` 设 `"mcp_autostart": false`。
 

@@ -50,9 +50,19 @@ python plugins/whale-pet/manage.py start | stop | restart  # 启停桌宠
 python plugins/whale-pet/manage.py sound             # 依次试听 8 条音效
 ```
 
-卸载是「除净」语义：先优雅退出桌宠进程（跨安装副本都能停），再移除插件/市场/MCP
-注册，`--purge` 额外清掉 `pet_config.json`、`bridge_token`、`__pycache__`；
+卸载是「除净」语义：先摘掉插件/市场/MCP 注册，**只有当没有别的 Agent 还在用时才停掉
+桌宠**（`uninstall all` 或 `--purge` 一定停）；`--purge` 额外清掉 `pet_config.json`、
+`bridge_token`、`usage_state.json`、`__pycache__`、ZCode 插件缓存与 MCP 启动器；
 改任何 Agent 配置文件前都会备份成 `*.whale-bak`。
+
+**升级不会失效**：注册到别的 Agent 的 MCP 用的是 `~/.whale-pet/mcp_launcher.py`
+（每次启动自动定位最新安装副本），所以插件升级换版本目录后依然能跑；
+ZCode 的钩子也带路径存在性守卫，升级后不重启只会静默跳过、不再报错。
+
+**升级流程是自动的**：`manage.py install zcode` 会先停桌宠（Windows 下运行中的副本会
+锁住插件缓存目录，导致 CLI 替换版本时 `EPERM` 失败）→ 更新 → **清掉缓存里的旧版本副本**
+（CLI 不会自己清，每个好几 MB）→ 从新副本自动重新拉起桌宠。
+`manage.py start` 也总是优先拉起"已安装的那份"，保证 token 与 ZCode 钩子/MCP 一致。
 
 ### ZCode 图形界面安装
 
@@ -72,13 +82,18 @@ python plugins/whale-pet/manage.py sound             # 依次试听 8 条音效
 |-------|---------|-------------|
 | **ZCode** | 原生插件（本仓库即插件市场） | `manage.py install zcode` |
 | **Claude Code** | 原生插件（仓库含 `.claude-plugin` 双格式） | `manage.py install claude` |
-| **Codex** | MCP 服务器（无钩子，工具调用时自动拉起桌宠） | `manage.py install codex` |
+| **Codex** | MCP 服务器（注册稳定启动器，无钩子、工具调用时自动拉起桌宠） | `manage.py install codex` |
 | **其他支持 MCP 的 Agent**（Cursor/Windsurf/Cline…） | MCP JSON 片段 | `manage.py install mcp [--config 配置文件]` |
 | **任何能跑命令的 Agent** | `whale_cli.py` CLI / HTTP 桥 | 无需安装 |
 
 桌宠核心与 Agent 完全解耦：独立进程 + 本地 HTTP 桥（`127.0.0.1:37821`）
 + CLI + MCP 服务器，换 Agent 不用换桌宠。完整接入说明见
 **[docs/integrations.md](docs/integrations.md)**。
+
+**平台要求**：桌宠本体（透明窗口 / 音效 / 托盘）目前仅支持 **Windows**
+（非 Windows 会给出提示后安静退出）；HTTP 桥、CLI、MCP 三个接口本身不挑平台，
+所以「控制 + 用量上报」在其他系统上依然可用。需要 Python 3.8+，依赖
+`pillow`、`numpy`、`pystray`。
 
 ## 🔄 数据实时性
 
@@ -212,7 +227,8 @@ plugins/whale-pet/
 ├── manage.py                   # 统一管理器：安装/卸载/状态/启停/试听
 ├── .zcode-plugin/plugin.json   # 插件清单
 ├── .claude-plugin/plugin.json  # Claude Code 清单（双格式）
-├── hooks/hooks.json            # SessionStart 自启 + Stop/PostToolUse 用量上报
+├── hooks/hooks.json            # Claude Code 钩子（command 写法）
+├── hooks/hooks.zcode.json      # ZCode 钩子（process 写法，带路径失效守卫）
 ├── hooks/launch_pet.py         # 分离进程启动桌宠
 ├── hooks/report_usage.py       # 转写用量提取上报
 ├── mcp/.mcp.json               # MCP 服务器声明

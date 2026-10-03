@@ -22,6 +22,12 @@ import io
 import json
 import math
 import os
+
+if os.name != 'nt':      # 透明窗口(颜色键)/winsound/DPI 都依赖 Windows；早点给出人话
+    import sys as _sys
+    _sys.stderr.write('鲸鱼娘桌宠目前仅支持 Windows（需要透明窗口与 winsound）。\n'
+                      '本次退出；其他 Agent 上的文本互动仍可用 MCP/CLI 接口。\n')
+    _sys.exit(0)
 import queue
 import random
 import secrets
@@ -1450,7 +1456,10 @@ class PetApp:
 
     def _handle_metrics(self, data):
         """累计一次用量上报并重算命中率/速率（只认当前数据源）。"""
-        if str(data.get('source') or 'hook') != self.usage_source:
+        src = str(data.get('source') or 'hooks')
+        if src == 'hook':          # 兼容旧版钩子脚本写的字段值
+            src = 'hooks'
+        if src != self.usage_source:
             return
         with self._metrics_lock:
             m = self.metrics

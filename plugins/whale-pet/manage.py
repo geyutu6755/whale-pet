@@ -42,6 +42,71 @@ NAME = 'whale-pet'
 MARKET = 'whale-pet-market'
 GITHUB_REPO = 'geyutu6755/whale-pet'
 HOME = os.path.expanduser('~')
+LAUNCHER_DIR = os.path.join(HOME, '.whale-pet')
+LAUNCHER = os.path.join(LAUNCHER_DIR, 'mcp_launcher.py')
+
+# MCP 启动器：注册到别的 Agent 时不写死"某个安装副本"的路径。
+# 插件升级后缓存目录会换成新版本号，写死路径就会失效（钩子那次踩过同样的坑）。
+LAUNCHER_SRC = '''# -*- coding: utf-8 -*-
+"""鲸鱼娘桌宠 MCP 启动器 —— 每次启动时自动定位最新的那份安装副本。
+
+为什么需要它：MCP 注册（如 Codex 的 config.toml）如果写死插件缓存里的路径，
+插件一升级、缓存目录换版本，那个路径就失效了。这里每次启动现挑一次。
+找不到安装副本时安静退出（不打扰宿主）。
+由 manage.py 自动写入，卸载时用 `manage.py uninstall <agent>` 移除。
+"""
+import glob
+import os
+import runpy
+import sys
+
+PATTERNS = (
+    os.path.join(os.path.expanduser('~'), '.zcode', 'cli', 'plugins', 'cache',
+                 '*', 'whale-pet', '*', 'mcp', 'whale_pet_mcp.py'),
+    os.path.join(os.path.expanduser('~'), '.claude', 'plugins', 'cache',
+                 '*', 'whale-pet', '*', 'mcp', 'whale_pet_mcp.py'),
+)
+
+
+def find():
+    cands = [p for pat in PATTERNS for p in glob.glob(pat) if os.path.exists(p)]
+    cands.sort(key=os.path.getmtime)
+    return cands[-1] if cands else ''
+
+
+def main():
+    target = find()
+    if not target:
+        sys.exit(0)
+    runpy.run_path(target, run_name='__main__')
+
+
+if __name__ == '__main__':
+    main()
+'''
+
+
+def write_launcher():
+    """写入/刷新 MCP 启动器，返回其路径（失败则回落到直接用插件内脚本）。"""
+    try:
+        os.makedirs(LAUNCHER_DIR, exist_ok=True)
+        with open(LAUNCHER, 'w', encoding='utf-8') as f:
+            f.write(LAUNCHER_SRC)
+        return LAUNCHER
+    except Exception:
+        return MCP_SCRIPT
+
+
+def remove_launcher():
+    """卸载时清掉启动器与其目录（目录非空则保留）。"""
+    try:
+        if os.path.exists(LAUNCHER):
+            os.remove(LAUNCHER)
+        if os.path.isdir(LAUNCHER_DIR) and not os.listdir(LAUNCHER_DIR):
+            os.rmdir(LAUNCHER_DIR)
+        return True
+    except Exception:
+        return False
 
 OK, NO, DASH = '[√]', '[×]', '[-]'
 
@@ -139,6 +204,23 @@ def pet_running():
         return False
 
 
+def pet_up_at(pet_dir, timeout=1.0):
+    """指定安装副本的桥是否可达（每份副本有自己的 token，不能用错）。"""
+    port, token = _bridge_of(pet_dir)
+    req = urllib.request.Request(f'http://127.0.0.1:{port}/state',
+                                 headers={'X-Token': token})
+    with urllib.request.urlopen(req, timeout=timeout) as r:
+        return json.loads(r.read().decode('utf-8'))
+
+
+def pet_up_anywhere(pet_dir):
+    try:
+        pet_up_at(pet_dir)
+        return True
+    except Exception:
+        return False
+
+
 def pet_processes():
     """所有正在运行的桌宠进程 [(pid, pet_dir)] —— 跨安装副本都能管。"""
     if os.name != 'nt':
@@ -176,19 +258,51 @@ def _kill_pet_processes():
         timeout=30)
 
 
-def start_pet(wait=12.0):
+def prune_old_copies():
+    """删掉插件缓存里除最新版外的旧副本（CLI 升级后不会自己清，每个好几 MB）。"""
+    import glob
+    root = os.path.join(HOME, '.zcode', 'cli', 'plugins', 'cache', MARKET, NAME)
+    dirs = [d for d in glob.glob(os.path.join(root, '*')) if os.path.isdir(d)]
+    if len(dirs) <= 1:
+        return []
+    dirs.sort(key=os.path.getmtime)
+    removed = []
+    for d in dirs[:-1]:
+        shutil.rmtree(d, ignore_errors=True)
+        if not os.path.isdir(d):
+            removed.append(os.path.basename(d))
+    return removed
+
+
+def newest_plugin_copy():
+    """最新安装的 ZCode 插件缓存副本（升级后桌宠要从这里起，token 才和钩子一致）。"""
+    import glob
+    cands = [c for c in glob.glob(os.path.join(HOME, '.zcode', 'cli', 'plugins',
+                                               'cache', '*', 'whale-pet', '*'))
+             if os.path.exists(os.path.join(c, 'pet', 'whale_pet.py'))]
+    cands.sort(key=os.path.getmtime)
+    return cands[-1] if cands else ''
+
+
+def start_pet(wait=12.0, pet_dir=None):
+    if pet_dir is None:
+        # 优先拉起"已安装的那份最新副本"：ZCode 的钩子/MCP 与 Codex 的启动器都指向它，
+        # 从别处启动会让 token 对不上（MCP 调用会被 401 拒绝）
+        copy = newest_plugin_copy()
+        pet_dir = os.path.join(copy, 'pet') if copy else PET_DIR
+    script = os.path.join(pet_dir, 'whale_pet.py')
     if pet_running():
         return True, '桌宠已在运行'
     others = pet_processes()
     if others:
         return True, f'已有桌宠在运行（另一安装副本：{others[0][1]}）'
-    if not os.path.exists(PET_SCRIPT):
-        return False, f'缺少 {PET_SCRIPT}'
+    if not os.path.exists(script):
+        return False, f'缺少 {script}'
     flags = 0
     if os.name == 'nt':
         flags = 0x00000008 | 0x00000200        # DETACHED_PROCESS|CREATE_NEW_PROCESS_GROUP
     try:
-        subprocess.Popen([native_python(), PET_SCRIPT], cwd=PET_DIR,
+        subprocess.Popen([native_python(), script], cwd=pet_dir,
                          creationflags=flags, close_fds=True,
                          stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
                          stdin=subprocess.DEVNULL)
@@ -197,7 +311,7 @@ def start_pet(wait=12.0):
     t0 = time.time()
     while time.time() - t0 < wait:
         time.sleep(0.25)
-        if pet_running():
+        if pet_up_anywhere(pet_dir):        # 用被启动副本自己的 token 探活
             return True, f'已启动（{time.time() - t0:.1f}s）'
     return False, '启动超时（可手动运行 pet/whale_pet.py 看报错）'
 
@@ -394,7 +508,7 @@ class Claude:
     def uninstall(self, keep_market=False):
         exe = self._exe()
         if not exe:
-            return False, '未检测到 claude 命令，无需卸载'
+            return True, '未检测到 claude 命令，本来就没装'
         rc, out = run([exe, 'plugin', 'uninstall', NAME])
         if not keep_market:
             run([exe, 'plugin', 'marketplace', 'remove', MARKET])
@@ -418,27 +532,32 @@ class Codex:
         rc, out = run([self._exe(), 'mcp', 'get', NAME], timeout=60)
         if rc != 0:
             return DASH, 'MCP 未注册'
-        return (OK if MCP_SCRIPT.replace('/', os.sep) in out.replace('/', os.sep)
-                else NO), 'MCP 已注册' + ('' if MCP_SCRIPT in out else '（路径与当前不同）')
+        norm = out.replace('/', os.sep)
+        if 'mcp_launcher.py' in norm:
+            return OK, 'MCP 已注册（稳定启动器，升级插件不会失效）'
+        if MCP_SCRIPT.replace('/', os.sep) in norm:
+            return NO, 'MCP 已注册但写死了安装路径（建议重跑 install codex 换成启动器）'
+        return NO, 'MCP 已注册（路径与当前不同）'
 
     def install(self, *_):
         exe = self._exe()
+        launcher = write_launcher()
         if not exe:
             return False, ('未检测到 codex 命令。可手动在 ~/.codex/config.toml 添加：\n'
                            '      [mcp_servers.whale-pet]\n'
                            f'      command = "{native_python()}"\n'
-                           f'      args = ["{MCP_SCRIPT}"]')
+                           f'      args = ["{launcher}"]')
         backup(os.path.join(HOME, '.codex', 'config.toml'))
         rc, out = run([exe, 'mcp', 'get', NAME], timeout=60)
-        if rc == 0 and MCP_SCRIPT.replace('/', os.sep) in out.replace('/', os.sep):
-            return True, 'MCP 已注册（跳过）'
-        if rc == 0:
+        if rc == 0 and 'mcp_launcher.py' in out.replace('/', os.sep):
+            return True, 'MCP 已注册（稳定启动器，跳过）'
+        if rc == 0:                       # 老写法（写死路径）→ 换掉
             run([exe, 'mcp', 'remove', NAME], timeout=60)
         rc, out = run([exe, 'mcp', 'add', NAME, '--',
-                       native_python(), MCP_SCRIPT], timeout=90)
+                       native_python(), launcher], timeout=90)
         if rc != 0:
             return False, f'注册失败：{out.strip()[:200]}'
-        return True, f'已注册 MCP（v{version()}）——重启 Codex 生效'
+        return True, f'已注册 MCP（v{version()}，稳定启动器）——重启 Codex 生效'
 
     def uninstall(self, keep_market=False):
         exe = self._exe()
@@ -446,8 +565,14 @@ class Codex:
             return False, '未检测到 codex 命令，无需卸载'
         backup(os.path.join(HOME, '.codex', 'config.toml'))
         rc, out = run([exe, 'mcp', 'remove', NAME], timeout=60)
-        return rc == 0, ('已从 Codex 移除 MCP 注册' if rc == 0
-                         else f'移除：{out.strip()[:150]}')
+        # codex 对不存在的条目也返回 0，只能看输出判断（实测）
+        if 'No MCP server named' in out:
+            remove_launcher()
+            return True, '本来就没注册'
+        if rc == 0:
+            remove_launcher()
+            return True, '已从 Codex 移除 MCP 注册'
+        return False, f'移除：{out.strip()[:150]}'
 
 
 class GenericMcp:
@@ -565,6 +690,11 @@ def cmd_install(agent, from_github=False, config_path=None):
                    if k == 'mcp' or a.available()[0]]
         if 'claude' in targets:
             targets.remove('claude')          # all 默认不打扰未安装的 Claude
+    # 升级 ZCode 插件时，桌宠若正跑在插件缓存目录里会锁住目录 →
+    # CLI 替换版本时 EPERM 失败。所以先停，装完再从新副本拉起来。
+    was_running = pet_running() or bool(pet_processes())
+    if 'zcode' in targets and was_running:
+        print(f'  先停桌宠    {stop_pet()}（否则插件缓存目录被占用，升级会 EPERM 失败）')
     for key in targets:
         obj = AGENTS[key]
         avail, why = obj.available()
@@ -578,10 +708,31 @@ def cmd_install(agent, from_github=False, config_path=None):
         except Exception as e:
             ok, msg = False, str(e)
         print(f'  {obj.label:<12}{OK if ok else NO} {msg}')
+        if key == 'zcode' and ok:
+            gone = prune_old_copies()
+            if gone:
+                print(f'  清旧版本    {OK} 删掉缓存旧副本 {"、".join(gone)}')
+    if 'zcode' in targets and was_running:
+        copy = newest_plugin_copy()
+        ok2, msg2 = start_pet(pet_dir=os.path.join(copy, 'pet') if copy else None)
+        print(f'  重启桌宠    {OK if ok2 else NO} {msg2}')
+
+
+def _agents_in_use():
+    """还装着桌宠的 Agent（用于决定卸载时是否要停掉桌宠）。"""
+    out = []
+    for key, obj in AGENTS.items():
+        if key == 'mcp':          # 通用 MCP 只是一段配置片段，不算"在用"
+            continue
+        try:
+            if obj.status()[0] == OK:
+                out.append(obj.label)
+        except Exception:
+            pass
+    return out
 
 
 def cmd_uninstall(agent, purge=False, keep_market=False, config_path=None):
-    print(f'  先停桌宠：{stop_pet()}')
     targets = list(AGENTS) if agent == 'all' else [agent]
     if agent == 'all':
         targets = [k for k, a in AGENTS.items() if a.available()[0] or k == 'zcode']
@@ -593,7 +744,15 @@ def cmd_uninstall(agent, purge=False, keep_market=False, config_path=None):
         except Exception as e:
             ok, msg = False, str(e)
         print(f'  {obj.label:<12}{OK if ok else NO} {msg}')
+    # 摘完注册再决定桌宠去留：别的 Agent 还装着就留着，别把人家正在用的宠物停掉
+    still = _agents_in_use()
+    if purge or not still:
+        print(f'  停桌宠      {stop_pet()}')
+    elif still:
+        print(f'  桌宠保留    {"、".join(still)} 仍在使用（要停用 uninstall all）')
     if purge:
+        if remove_launcher():
+            print(f'  清启动器    {OK} {LAUNCHER}')
         # ZCode CLI 卸载后会把插件缓存留在磁盘上（占好几 MB），这里一并清掉
         cache = os.path.join(HOME, '.zcode', 'cli', 'plugins', 'cache', MARKET)
         if os.path.isdir(cache):

@@ -1,6 +1,6 @@
 {
   "name": "whale-pet",
-  "version": "1.2.2",
+  "version": "1.2.5",
   "description": "118 条台词 + 77 条语音音效（点击「嗷呜～」、任务完成播报，开关+音量可调）+ Token 用量 HUD（自动采集，重启不丢）+ Agent 状态联动 + MCP 工具 + 一键装卸管理器，适配 ZCode / Claude Code / Codex",
   "author": {
     "name": "whale-pet contributors"
