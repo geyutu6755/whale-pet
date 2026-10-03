@@ -1,20 +1,32 @@
 {
   "name": "whale-pet-market",
-  "owner": { "name": "whale-pet contributors" },
+  "owner": {
+    "name": "geyutu6755"
+  },
   "plugins": [
     {
       "name": "whale-pet",
-      "source": "./whale-pet",
+      "source": "./plugins/whale-pet",
       "version": "0.2.0",
       "description": "DeepSeek 鲸鱼娘桌宠：Token 用量 HUD（累计用量/缓存命中率/输出速率）+ Agent 状态联动 + MCP 工具",
       "displayName": "鲸鱼娘桌宠",
-      "displayName_i18n": { "zh-CN": "鲸鱼娘桌宠", "en-US": "Whale Girl Pet" },
+      "displayName_i18n": {
+        "zh-CN": "鲸鱼娘桌宠",
+        "en-US": "Whale Girl Pet"
+      },
       "description_i18n": {
         "zh-CN": "DeepSeek 鲸鱼娘桌宠：桌面陪伴 + Token 用量 HUD（累计用量/缓存命中率/输出速率）+ Agent 状态联动，支持 MCP 工具控制。",
         "en-US": "DeepSeek whale girl desktop pet with token usage HUD (totals, cache hit rate, output rate) and agent state integration via MCP."
       },
       "category": "productivity",
-      "keywords": ["deepseek", "pet", "desktop", "鲸鱼娘", "桌宠", "token"]
+      "keywords": [
+        "deepseek",
+        "pet",
+        "desktop",
+        "鲸鱼娘",
+        "桌宠",
+        "token"
+      ]
     }
   ]
 }

@@ -23,10 +23,16 @@
 
 ## 📦 安装（ZCode）
 
-1. 下载本仓库到本地（或 `git clone`）
-2. ZCode → **Plugin Marketplace → Add → Add Plugin Marketplace**，粘贴本仓库的 `plugins` 目录路径
+**方式一（推荐，直接装 GitHub 版）**
+1. ZCode → 左下 **Plugin Marketplace → Add → Add Plugin Marketplace**
+2. 粘贴本仓库地址：`geyutu6755/whale-pet`（或完整 `https://github.com/geyutu6755/whale-pet`）
 3. **Personal → whale-pet-market → 鲸鱼娘桌宠 → Install**
 4. 新建任务（或重启 ZCode）→ 鲸鱼娘自动出现 🎉
+
+**方式二（本地目录）**
+1. `git clone https://github.com/geyutu6755/whale-pet` 到本地
+2. 添加市场时粘贴仓库根目录路径（含 `marketplace.json` 的那层）
+3. 同样在 Personal 里 Install
 
 ## 🎮 交互
 
