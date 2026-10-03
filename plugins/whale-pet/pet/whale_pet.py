@@ -540,7 +540,7 @@ class PetApp:
         size = max(1, round(256 * self.scale))
         self.spr_w = self.spr_h = size
         self.bubble_h = int(104 * self.scale) + 20
-        self.hud_h = int(30 * self.scale) + 18          # 用量 HUD 高度
+        self.hud_h = int(54 * self.scale) + 20          # 用量 HUD 高度（三栏三行卡片）
         self.hud_visible = bool(self.cfg.get('hud', True))
         self.roam_side = max(90, round(150 * self.scale))   # 左右可移动量（越大窗口重定位越少）
         self.roam_vert = max(46, round(64 * self.scale))
@@ -993,6 +993,15 @@ class PetApp:
             return f'{n / 1000:.1f}k'
         return str(int(n))
 
+    @staticmethod
+    def _fmt_compact(n):
+        """紧凑格式（明细行，无小数）：134k / 1.2M"""
+        if n >= 1_000_000:
+            return f'{n / 1e6:.1f}M'.replace('.0M', 'M')
+        if n >= 1000:
+            return f'{round(n / 1000)}k'
+        return str(int(n))
+
     def _handle_metrics(self, data):
         """累计一次用量上报并重算命中率/速率。"""
         with self._metrics_lock:
@@ -1028,25 +1037,86 @@ class PetApp:
         self._place()
 
     def _render_hud(self):
-        """渲染用量面板（深色圆角条，DSH 底栏风格）。"""
+        """渲染用量面板：三栏卡片（总 Token / 缓存命中率+进度条 / 响应次数）。
+
+        2x 超采样后 LANCZOS 缩小 → 几何平滑；alpha 阈值化 → 无半透明像素，
+        与颜色键画布合成时零杂边（fringe）。
+        """
         s = self.scale
-        w = max(150, round(self.spr_w * 0.96))
-        h = self.hud_h - 10
+        SS = 2
+        w = max(int(190 * s), round(self.spr_w * 0.98))
+        h = self.hud_h - 12
+        W, H = w * SS, h * SS
         m = self.metrics
-        fs = max(10, min(15, int(w / 16)))
-        font = load_font(fs, bold=True)
-        im = Image.new('RGBA', (w, h), (0, 0, 0, 0))
-        d = ImageDraw.Draw(im)
-        d.rounded_rectangle([1, 1, w - 2, h - 2], radius=int(7 * s) + 4,
-                            fill=(32, 38, 58, 255), outline=(90, 120, 180), width=2)
-        hit = m.get('cache_hit_rate', 0.0) * 100
+        total = m.get('input_tokens', 0) + m.get('output_tokens', 0)
+        hit = min(1.0, max(0.0, m.get('cache_hit_rate', 0.0)))
+        resp = m.get('responses', 0)
         rate = m.get('output_rate', 0.0)
-        line1 = f'↑{self._fmt_tokens(m.get("input_tokens", 0))} ' \
-                f'↓{self._fmt_tokens(m.get("output_tokens", 0))} ' \
-                f'⚡{rate:.0f} t/s'
-        line2 = f'缓存命中 {hit:.0f}%   响应 {m.get("responses", 0)} 次'
-        d.text((10, 4), line1, font=font, fill=(140, 200, 255))
-        d.text((10, h // 2 - 1), line2, font=font, fill=(170, 225, 190))
+
+        im = Image.new('RGBA', (W, H), (0, 0, 0, 0))
+        d = ImageDraw.Draw(im)
+        radius = max(8, int(11 * SS * s))
+        # 深海军蓝纵向渐变 + 圆角遮罩
+        mask = Image.new('L', (W, H), 0)
+        ImageDraw.Draw(mask).rounded_rectangle([0, 0, W - 1, H - 1], radius=radius, fill=255)
+        for yy in range(H):
+            t = yy / max(1, H - 1)
+            d.line([(0, yy), (W, yy)],
+                   fill=(int(27 + 16 * t), int(33 + 18 * t), int(55 + 26 * t), 255))
+        im.putalpha(mask)
+        d = ImageDraw.Draw(im)
+        # 外框 + 顶部高光细线
+        d.rounded_rectangle([0, 0, W - 1, H - 1], radius=radius,
+                            outline=(92, 124, 182, 255), width=max(2, SS))
+        d.line([(radius, max(2, SS + 1)), (W - radius, max(2, SS + 1))],
+               fill=(138, 188, 240, 255), width=max(1, SS // 2))
+        # 三栏 + 竖向分隔线
+        pad_x = int(13 * SS * s)
+        pad_y = int(7 * SS * s)
+        col_w = (W - 2 * pad_x) // 3
+        xs = [pad_x, pad_x + col_w, pad_x + 2 * col_w]
+        for i in (1, 2):
+            x = pad_x + col_w * i - int(7 * SS * s)
+            d.line([(x, int(H * 0.26)), (x, int(H * 0.76))],
+                   fill=(66, 84, 122, 255), width=max(1, SS // 2))
+        f_lab = load_font(max(10, int(11.5 * SS * s)))
+        f_val = load_font(max(13, int(16 * SS * s)), bold=True)
+        f_min = load_font(max(9, int(10 * SS * s)))
+        lab_h = int(14 * SS * s)          # 标签行高
+        val_h = int(21 * SS * s)          # 数值行高
+        min_h = int(13 * SS * s)          # 明细行高
+        top = max(pad_y, (H - (lab_h + val_h + min_h)) // 2)
+        lab_y = top
+        val_y = lab_y + lab_h
+        min_y = val_y + val_h
+        # 栏 1：总 Token（大字）+ 输入输出明细
+        d.text((xs[0], lab_y), '总 TOKEN', font=f_lab, fill=(128, 150, 192))
+        d.text((xs[0], val_y), self._fmt_tokens(total), font=f_val, fill=(238, 244, 255))
+        micro1 = (f'↑{self._fmt_compact(m.get("input_tokens", 0))} '
+                  f'↓{self._fmt_compact(m.get("output_tokens", 0))}')             if resp > 0 else '等待用量数据…'
+        d.text((xs[0], min_y), micro1, font=f_min, fill=(120, 158, 208))
+        # 栏 2：缓存命中率 + 迷你进度条
+        d.text((xs[1], lab_y), '缓存命中', font=f_lab, fill=(128, 150, 192))
+        d.text((xs[1], val_y), f'{hit * 100:.0f}%', font=f_val, fill=(146, 226, 196))
+        bar_w = col_w - int(8 * SS * s)
+        bar_h = max(4, int(5 * SS * s))
+        by = val_y + val_h + (min_h - bar_h) // 2
+        d.rounded_rectangle([xs[1], by, xs[1] + bar_w, by + bar_h],
+                            radius=bar_h // 2, fill=(48, 62, 92, 255))
+        if hit > 0.02:
+            fw = max(bar_h, int(bar_w * hit))
+            d.rounded_rectangle([xs[1], by, xs[1] + fw, by + bar_h],
+                                radius=bar_h // 2, fill=(104, 202, 222, 255))
+        # 栏 3：响应次数 + 输出速率
+        d.text((xs[2], lab_y), '响应', font=f_lab, fill=(128, 150, 192))
+        d.text((xs[2], val_y), f'{resp} 次', font=f_val, fill=(238, 244, 255))
+        if rate > 0:
+            d.text((xs[2], min_y), f'{rate:.0f} t/s', font=f_min, fill=(120, 158, 208))
+        # 下采样 + alpha 阈值化（零 fringe）
+        im = im.resize((w, h), Image.LANCZOS)
+        arr = np.asarray(im).copy()
+        arr[..., 3] = np.where(arr[..., 3] >= 120, 255, 0)
+        im = Image.fromarray(arr, 'RGBA')
         return to_photo(im, remap=False)
 
     def _update_hud(self):

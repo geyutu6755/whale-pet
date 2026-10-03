@@ -1,6 +1,6 @@
 {
   "name": "whale-pet",
-  "version": "0.2.1",
+  "version": "0.2.2",
   "description": "DeepSeek 鲸鱼娘桌宠：桌面陪伴 + Token 用量 HUD（累计用量/缓存命中率/输出速率）+ Agent 状态联动。支持 ZCode / DeepSeek Harness / Codex。",
   "author": {
     "name": "whale-pet contributors"
