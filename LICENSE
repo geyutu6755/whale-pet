@@ -22,8 +22,23 @@ SOFTWARE.
 
 ---
 
+Scope note: the MIT License above covers the **source code** of this project.
+Bundled third-party assets are **not** covered by it and keep their own terms
+(listed below). This project is a non-commercial, fan-made open-source project.
+
 Third-party assets:
 - Character art: "鲸鱼娘" sticker set by ZipZipPipe (Bilibili), used per the
   upstream project's distribution terms.
 - Sprite sheets & state machine spec: vlln/whale-girl (MIT License),
   see plugins/whale-pet/pet/assets/sheets/LICENSE-whale-girl.txt
+- Voice/sound effects (plugins/whale-pet/pet/assets/sounds/):
+  - `short/` — synthesized with Microsoft Edge TTS (edge-tts); use of the
+    audio output is subject to the speech service's terms.
+  - `voice/` — from aceice01/dsh-whale-pet, used under its **Non-Commercial
+    Use License** (personal study / research / entertainment; non-commercial
+    modification, copy and distribution allowed with this license and credit
+    retained; commercial use prohibited).
+    Full text: plugins/whale-pet/pet/assets/sounds/LICENSE-community-dsh-whale-pet.txt
+  - Details & credits: plugins/whale-pet/pet/assets/sounds/CREDITS.md
+  - Commercial use of the bundled voice assets is not permitted; replace or
+    license them separately if you need that.

@@ -156,8 +156,9 @@ ZCode 的钩子也带路径存在性守卫，升级后不重启只会静默跳�
   上一条没播完时非点击类事件直接放弃这次出声，两条语音之间至少隔 1.2 秒
 - 素材来源与许可见 [`pet/assets/sounds/CREDITS.md`](plugins/whale-pet/pet/assets/sounds/CREDITS.md)：
   `short/` 为 Edge TTS 合成，`voice/` 来自社区项目（**非商业许可**）
-- **想要干净的授权链**：直接删掉 `pet/assets/sounds/voice/` 目录即可，桌宠会自动
-  退化为只用 28 条短音效（等待/待机这类没有短音效的事件回落台词），功能不受影响
+- **许可**：本项目为非商业开源项目，`voice/` 按原项目的非商业许可使用并已署名
+  （见 `sounds/CREDITS.md`）；**若要商用**先删掉 `pet/assets/sounds/voice/` 目录——
+  桌宠会自动退化为只用 28 条短音效（等待这类没有短音效的事件回落台词），功能不受影响
 - 重新导入素材包：`python pet/import_sound_pack.py "<音效包目录或 zip>"`
   （自动裁静音、44.1k→22.05k、峰值归一）
 
@@ -202,8 +203,9 @@ python whale_cli.py sound_on | sound_off      # 音效开关
 每条记录带真实 `usage`（inputTokens/outputTokens/cacheReadTokens）与耗时，
 桌宠每 2 秒 tail 一次，按 `completedAt` 水位线去重（重启不丢、不重复计）。
 
-> 为什么不用钩子：ZCode 侧钩子虽已注册（启动日志 `hookCount: 3`），但实测**没有任何
-> 执行记录**，HUD 长期为 0；模型 I/O 记录是同一份数据的更可靠来源，且不需宿主配合。
+> 为什么不用钩子：ZCode 侧的钩子确实会执行（启动日志 `hookCount: 3`），但它的钩子
+> 载荷里既没有 `usage`、也没有 Claude 式的 `transcript_path`，`report_usage.py`
+> 取不到用量 → HUD 长期为 0。模型 I/O 记录是同一份数据的可靠来源，且不需宿主配合。
 > 钩子保留着并用 `source` 字段区分，其他宿主（没有该记录）会自动回落到钩子上报，
 > 可在 `pet_config.json` 用 `usage_source` 强制指定。
 
@@ -250,6 +252,19 @@ plugins/whale-pet/
 
 ## 📜 素材来源与许可
 
-- 角色立绘：B站画师 ZipZipPipe 的「鲸鱼娘」表情包形象
-- 精灵图/状态机规格：[vlln/whale-girl](https://github.com/vlln/whale-girl)（MIT License）
-- 详见 `plugins/whale-pet/pet/assets/sheets/CREDITS.md`
+本项目是**个人非商业性质的同人开源项目**（与 DeepSeek 官方无隶属或背书关系）。
+仓库的 MIT License 覆盖**源代码**；下列第三方素材各有其许可，不在 MIT 范围内：
+
+| 素材 | 来源 | 许可 |
+|------|------|------|
+| 角色立绘「鲸鱼娘」 | B站画师 ZipZipPipe 的表情包形象 | 依上游项目分发条款 |
+| 精灵图 / 状态机规格 | [vlln/whale-girl](https://github.com/vlln/whale-girl) | MIT |
+| 短反应音效（28 条，`sounds/short/`） | Microsoft Edge TTS（edge-tts）合成 | 受语音服务条款约束 |
+| 整句语音（49 条，`sounds/voice/`） | [aceice01/dsh-whale-pet](https://github.com/aceice01/dsh-whale-pet) | **非商业许可**（保留许可与致谢；禁止商业用途） |
+
+- 素材致谢与完整许可文本随仓库一起分发：
+  `plugins/whale-pet/pet/assets/sounds/CREDITS.md`、
+  `.../sounds/LICENSE-community-dsh-whale-pet.txt`、
+  `plugins/whale-pet/pet/assets/sheets/CREDITS.md`
+- **要商用**必须先替换或另行取得授权（尤其 `sounds/voice/`）；
+  删掉 `sounds/voice/` 目录即可自动降级为纯短音效，去掉这部分依赖
