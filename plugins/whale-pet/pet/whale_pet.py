@@ -518,7 +518,12 @@ class PetApp:
                         'cache_hit_rate': 0.0, 'output_rate': 0.0,
                         'responses': 0}
         self._metrics_dirty = False
-        self.hud_visible = bool(self.cfg.get('hud', True))
+        # 用量面板显示模式：auto=点一下短暂显示 / on=常显 / off=关闭
+        self.hud_mode = self.cfg.get('hud_mode', 'auto')
+        if self.hud_mode not in ('auto', 'on', 'off'):
+            self.hud_mode = 'auto'
+        self.hud_until = 0.0        # auto 模式的临时显示截止时间
+        self._hud_shown = False
         self.hud_item = None
         self._hud_photo = None
 
@@ -541,11 +546,10 @@ class PetApp:
         self.spr_w = self.spr_h = size
         self.bubble_h = int(104 * self.scale) + 20
         self.hud_h = int(54 * self.scale) + 20          # 用量 HUD 高度（三栏三行卡片）
-        self.hud_visible = bool(self.cfg.get('hud', True))
         self.roam_side = max(90, round(150 * self.scale))   # 左右可移动量（越大窗口重定位越少）
         self.roam_vert = max(46, round(64 * self.scale))
         head_clear = round(0.90 * size) + self.bubble_h + 6
-        hud_reserve = (self.hud_h + 8) if self.hud_visible else 0
+        hud_reserve = self.hud_h + 8                     # 恒保留：面板隐现不引起布局跳动
         self.win_w = size + self.roam_side * 2
         self.win_h = head_clear + self.roam_vert + 10 + hud_reserve
         self.anchor_x = self.win_w / 2
@@ -700,6 +704,7 @@ class PetApp:
         self.drag = {'x': e.x_root, 'y': e.y_root, 'sx': self.sx, 'sy': self.sy,
                      'moved': False, 'petting': False, 't': now, 'heart_at': 0.0}
         self.canvas.focus_set()
+        self.flash_hud()          # 点一下：短暂显示用量面板
 
     def _on_drag(self, e):
         if not self.drag:
@@ -1023,109 +1028,137 @@ class PetApp:
             m['last_update'] = time.time()
         self._metrics_dirty = True
 
-    def _toggle_hud(self, val=None):
-        self.hud_visible = (not self.hud_visible) if val is None else bool(val)
-        self.cfg['hud'] = self.hud_visible
+    def _hud_should_show(self, now=None):
+        now = now or time.time()
+        if self.hud_mode == 'off':
+            return False
+        if self.hud_mode == 'on':
+            return True
+        return now < self.hud_until       # auto：点击后短暂显示
+
+    def flash_hud(self, seconds=8.0):
+        "点击宠物时短暂显示用量面板，随后自动隐藏。"
+        if self.hud_mode == 'off':
+            return
+        self.hud_until = time.time() + seconds
+        self._update_hud(force=True)
+
+    def set_hud_mode(self, mode):
+        if mode not in ('auto', 'on', 'off'):
+            mode = 'auto'
+        self.hud_mode = mode
+        self.cfg['hud_mode'] = mode
         save_config(self.cfg)
-        sx, sy = self.sx, self.sy            # 保持角色屏幕位置不变
-        self._compute_layout()
-        self.px = round(sx - self.anchor_x)
-        self.py = round(sy - self.anchor_y)
-        self.root.geometry(f'{self.win_w}x{self.win_h}+{self.px}+{self.py}')
-        self.canvas.config(width=self.win_w, height=self.win_h)
-        self.root.update_idletasks()
-        self._place()
+        self._update_hud(force=True)
+        self._place_hud()
 
     def _render_hud(self):
-        """渲染用量面板：三栏卡片（总 Token / 缓存命中率+进度条 / 响应次数）。
+        """渲染用量面板：蓝调毛玻璃三栏卡片 + 柔和外投影。
 
-        2x 超采样后 LANCZOS 缩小 → 几何平滑；alpha 阈值化 → 无半透明像素，
-        与颜色键画布合成时零杂边（fringe）。
+        色板呼应角色（白围裙 + 蓝花边 + 藏青描边）；2x 超采样 + alpha 阈值化，
+        几何平滑且与颜色键画布合成零杂边。深浅壁纸上都清晰可辨。
         """
         s = self.scale
         SS = 2
         w = max(int(190 * s), round(self.spr_w * 0.98))
         h = self.hud_h - 12
         W, H = w * SS, h * SS
+        M = 3 * SS                      # 投影边距
         m = self.metrics
         total = m.get('input_tokens', 0) + m.get('output_tokens', 0)
         hit = min(1.0, max(0.0, m.get('cache_hit_rate', 0.0)))
         resp = m.get('responses', 0)
         rate = m.get('output_rate', 0.0)
 
-        im = Image.new('RGBA', (W, H), (0, 0, 0, 0))
+        im = Image.new('RGBA', (W + 2 * M, H + 2 * M), (0, 0, 0, 0))
         d = ImageDraw.Draw(im)
-        radius = max(8, int(11 * SS * s))
-        # 深海军蓝纵向渐变 + 圆角遮罩
-        mask = Image.new('L', (W, H), 0)
-        ImageDraw.Draw(mask).rounded_rectangle([0, 0, W - 1, H - 1], radius=radius, fill=255)
+        radius = max(8, int(12 * SS * s))
+        # 柔和外投影（右下偏移，浅色壁纸上呈立体感）
+        d.rounded_rectangle([M + SS * 2, M + SS * 3,
+                             M + W + SS * 2 - 1, M + H + SS * 3 - 1],
+                            radius=radius, fill=(203, 214, 232, 255))
+        # 蓝调毛玻璃渐变 + 圆角遮罩
+        mask = Image.new('L', (W + 2 * M, H + 2 * M), 0)
+        ImageDraw.Draw(mask).rounded_rectangle(
+            [M, M, M + W - 1, M + H - 1], radius=radius, fill=255)
         for yy in range(H):
             t = yy / max(1, H - 1)
-            d.line([(0, yy), (W, yy)],
-                   fill=(int(27 + 16 * t), int(33 + 18 * t), int(55 + 26 * t), 255))
+            d.line([(M, M + yy), (M + W, M + yy)],
+                   fill=(int(238 - 20 * t), int(246 - 14 * t), int(255 - 6 * t), 255))
         im.putalpha(mask)
         d = ImageDraw.Draw(im)
-        # 外框 + 顶部高光细线
-        d.rounded_rectangle([0, 0, W - 1, H - 1], radius=radius,
-                            outline=(92, 124, 182, 255), width=max(2, SS))
-        d.line([(radius, max(2, SS + 1)), (W - radius, max(2, SS + 1))],
-               fill=(138, 188, 240, 255), width=max(1, SS // 2))
+        # 玻璃斜向高光（低对比柔面）
+        d.polygon([(M + radius, M + radius), (M + int(W * 0.55), M + radius),
+                   (M + radius, M + int(H * 0.92))], fill=(255, 255, 255, 255))
+        # 外框（蓝灰）+ 顶部内高光
+        d.rounded_rectangle([M, M, M + W - 1, M + H - 1], radius=radius,
+                            outline=(158, 190, 224, 255), width=max(2, SS))
+        d.line([(M + radius + 2, M + max(2, SS + 1)),
+                (M + W - radius - 2, M + max(2, SS + 1))],
+               fill=(255, 255, 255, 255), width=max(1, SS))
         # 三栏 + 竖向分隔线
         pad_x = int(13 * SS * s)
         pad_y = int(7 * SS * s)
         col_w = (W - 2 * pad_x) // 3
-        xs = [pad_x, pad_x + col_w, pad_x + 2 * col_w]
+        xs = [M + pad_x, M + pad_x + col_w, M + pad_x + 2 * col_w]
         for i in (1, 2):
-            x = pad_x + col_w * i - int(7 * SS * s)
-            d.line([(x, int(H * 0.26)), (x, int(H * 0.76))],
-                   fill=(66, 84, 122, 255), width=max(1, SS // 2))
+            x = M + pad_x + col_w * i - int(7 * SS * s)
+            d.line([(x, M + int(H * 0.26)), (x, M + int(H * 0.76))],
+                   fill=(190, 208, 230, 255), width=max(1, SS // 2))
         f_lab = load_font(max(10, int(11.5 * SS * s)))
         f_val = load_font(max(13, int(16 * SS * s)), bold=True)
         f_min = load_font(max(9, int(10 * SS * s)))
-        lab_h = int(14 * SS * s)          # 标签行高
-        val_h = int(21 * SS * s)          # 数值行高
-        min_h = int(13 * SS * s)          # 明细行高
-        top = max(pad_y, (H - (lab_h + val_h + min_h)) // 2)
+        lab_h = int(14 * SS * s)
+        val_h = int(21 * SS * s)
+        min_h = int(13 * SS * s)
+        top = M + max(pad_y, (H - (lab_h + val_h + min_h)) // 2)
         lab_y = top
         val_y = lab_y + lab_h
         min_y = val_y + val_h
-        # 栏 1：总 Token（大字）+ 输入输出明细
-        d.text((xs[0], lab_y), '总 TOKEN', font=f_lab, fill=(128, 150, 192))
-        d.text((xs[0], val_y), self._fmt_tokens(total), font=f_val, fill=(238, 244, 255))
+        # 栏 1：总 Token（大字，深藏青）+ 输入输出明细
+        d.text((xs[0], lab_y), '总 TOKEN', font=f_lab, fill=(126, 148, 182))
+        d.text((xs[0], val_y), self._fmt_tokens(total), font=f_val, fill=(44, 70, 116))
         micro1 = (f'↑{self._fmt_compact(m.get("input_tokens", 0))} '
-                  f'↓{self._fmt_compact(m.get("output_tokens", 0))}')             if resp > 0 else '等待用量数据…'
-        d.text((xs[0], min_y), micro1, font=f_min, fill=(120, 158, 208))
-        # 栏 2：缓存命中率 + 迷你进度条
-        d.text((xs[1], lab_y), '缓存命中', font=f_lab, fill=(128, 150, 192))
-        d.text((xs[1], val_y), f'{hit * 100:.0f}%', font=f_val, fill=(146, 226, 196))
+                  f'↓{self._fmt_compact(m.get("output_tokens", 0))}') \
+            if resp > 0 else '等待用量数据…'
+        d.text((xs[0], min_y), micro1, font=f_min, fill=(146, 166, 198))
+        # 栏 2：缓存命中率（青绿）+ 迷你进度条
+        d.text((xs[1], lab_y), '缓存命中', font=f_lab, fill=(126, 148, 182))
+        d.text((xs[1], val_y), f'{hit * 100:.0f}%', font=f_val, fill=(26, 138, 126))
         bar_w = col_w - int(8 * SS * s)
         bar_h = max(4, int(5 * SS * s))
         by = val_y + val_h + (min_h - bar_h) // 2
         d.rounded_rectangle([xs[1], by, xs[1] + bar_w, by + bar_h],
-                            radius=bar_h // 2, fill=(48, 62, 92, 255))
+                            radius=bar_h // 2, fill=(214, 226, 242, 255))
         if hit > 0.02:
             fw = max(bar_h, int(bar_w * hit))
+            for xx in range(xs[1], xs[1] + fw):
+                t = (xx - xs[1]) / max(1, fw - 1)
+                col = (int(80 + 20 * t), int(178 + 22 * t), int(216 - 46 * t), 255)
+                d.line([(xx, by), (xx, by + bar_h)], fill=col)
             d.rounded_rectangle([xs[1], by, xs[1] + fw, by + bar_h],
-                                radius=bar_h // 2, fill=(104, 202, 222, 255))
-        # 栏 3：响应次数 + 输出速率
-        d.text((xs[2], lab_y), '响应', font=f_lab, fill=(128, 150, 192))
-        d.text((xs[2], val_y), f'{resp} 次', font=f_val, fill=(238, 244, 255))
+                                radius=bar_h // 2, outline=(214, 226, 242, 255))
+        # 栏 3：响应次数（深藏青）+ 输出速率
+        d.text((xs[2], lab_y), '响应', font=f_lab, fill=(126, 148, 182))
+        d.text((xs[2], val_y), f'{resp} 次', font=f_val, fill=(44, 70, 116))
         if rate > 0:
-            d.text((xs[2], min_y), f'{rate:.0f} t/s', font=f_min, fill=(120, 158, 208))
+            d.text((xs[2], min_y), f'{rate:.0f} t/s', font=f_min, fill=(146, 166, 198))
         # 下采样 + alpha 阈值化（零 fringe）
-        im = im.resize((w, h), Image.LANCZOS)
+        im = im.resize((w + 6, h + 6), Image.LANCZOS)
         arr = np.asarray(im).copy()
         arr[..., 3] = np.where(arr[..., 3] >= 120, 255, 0)
         im = Image.fromarray(arr, 'RGBA')
         return to_photo(im, remap=False)
 
-    def _update_hud(self):
-        """按需重建 HUD 图像（仅统计变化时）。"""
-        if not self.hud_visible:
-            if getattr(self, 'hud_item', None) is not None:
+    def _update_hud(self, force=False):
+        """按需重建 HUD 图像；auto 模式到点自动隐藏。"""
+        if not self._hud_should_show():
+            if self._hud_shown and getattr(self, 'hud_item', None) is not None:
+                self._hud_shown = False
                 self.canvas.coords(self.hud_item, -9999, -9999)
             return
-        if not self._metrics_dirty and getattr(self, 'hud_item', None) is not None:
+        if not force and not self._metrics_dirty and getattr(self, 'hud_item', None) is not None:
+            self._hud_shown = True
             return
         self._hud_photo = self._render_hud()
         if getattr(self, 'hud_item', None) is None:
@@ -1134,10 +1167,11 @@ class PetApp:
         else:
             self.canvas.itemconfig(self.hud_item, image=self._hud_photo)
         self._metrics_dirty = False
+        self._hud_shown = True
 
     def _place_hud(self):
         """HUD 跟随角色底部居中。"""
-        if getattr(self, 'hud_item', None) is None or not self.hud_visible:
+        if getattr(self, 'hud_item', None) is None or not self._hud_shown:
             return
         ix, iy = self._item_pos()
         w = self._hud_photo.width()
@@ -1263,8 +1297,13 @@ class PetApp:
                 pystray.MenuItem('摇头晃脑', cmd('headshake')),
                 pystray.MenuItem('隐藏', cmd('hide')),
                 pystray.Menu.SEPARATOR,
-                pystray.MenuItem('用量面板', cmd('hud_toggle'),
-                                 checked=lambda i: bool(self.hud_visible)),
+                pystray.MenuItem('用量面板', pystray.Menu(
+                    pystray.MenuItem('点击时显示', cmd(('hud_mode', 'auto')),
+                                     checked=lambda i: self.hud_mode == 'auto'),
+                    pystray.MenuItem('始终显示', cmd(('hud_mode', 'on')),
+                                     checked=lambda i: self.hud_mode == 'on'),
+                    pystray.MenuItem('关闭', cmd(('hud_mode', 'off')),
+                                     checked=lambda i: self.hud_mode == 'off'))),
                 pystray.MenuItem('置顶窗口', cmd('topmost'),
                                  checked=lambda i: bool(self.cfg.get('topmost'))),
                 pystray.MenuItem('大小', pystray.Menu(
@@ -1330,9 +1369,13 @@ class PetApp:
                 else:
                     self._do_trick(etype)
             elif etype == 'hud_on':
-                self._toggle_hud(True)
+                self.set_hud_mode('on')
             elif etype == 'hud_off':
-                self._toggle_hud(False)
+                self.set_hud_mode('off')
+            elif etype == 'hud_auto':
+                self.set_hud_mode('auto')
+            elif etype == 'hud':
+                self.flash_hud()
             elif etype in AGENT_STATE_MS:
                 self._interact()
                 dur = (ms or AGENT_STATE_MS[etype]) / 1000.0
@@ -1385,7 +1428,8 @@ class PetApp:
             elif cmd == 'topmost':
                 self.set_topmost(not bool(self.cfg.get('topmost')))
             elif cmd == 'hud_toggle':
-                self._toggle_hud()
+                self.set_hud_mode('on' if self.hud_mode == 'off' else
+                                  ('off' if self.hud_mode == 'on' else 'on'))
             elif isinstance(cmd, tuple):
                 if cmd[0] == 'agent':
                     self._handle_agent(cmd[1], cmd[2], cmd[3])
@@ -1397,6 +1441,8 @@ class PetApp:
                         self.set_scale(val)
                     elif kind == 'alpha':
                         self.set_alpha(val)
+                    elif kind == 'hud_mode':
+                        self.set_hud_mode(val)
 
     def tray_hide(self):
         if self.hidden:

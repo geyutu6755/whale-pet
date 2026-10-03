@@ -11,10 +11,11 @@
 
 - **桌宠**：正版鲸鱼娘形象，待机眨眼、走路散步、转圈圈、摇头晃脑、摇摆、蹦跳、点头、
   睡觉 Zzz、开心飘爱心、被拖拽摇摆——全部帧预渲染，60fps 无卡顿
-- **Token 用量 HUD**（DSH 底栏风格）：
-  - 累计输入 / 输出 Token
-  - 缓存命中率（cache_read ÷ (cache_read + cache_creation + input)）
-  - 最近输出速率（tok/s，按回复耗时估算）
+- **Token 用量 HUD**（蓝调毛玻璃卡片，默认点击宠物时短暂显示 8 秒后自动隐藏）：
+  - 总 Token 消耗量（含输入/输出明细）
+  - 缓存命中率（cache_read ÷ (cache_read + cache_creation + input)，带进度条）
+  - 响应次数 + 最近输出速率（tok/s，按回复耗时估算）
+  - 显示模式三档：点击时显示 / 始终显示 / 关闭（托盘菜单或 MCP `hud_on/hud_off/hud_auto`）
 - **Agent 联动**：MCP 工具让 Agent 在任务完成时庆祝、出错时惊吓、思考时陪伴、
   等待批准时提醒
 - **自动出现**：Agent 会话启动（SessionStart 钩子）时自动拉起桌宠，无需手动操作
