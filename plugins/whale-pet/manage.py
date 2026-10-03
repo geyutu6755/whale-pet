@@ -500,9 +500,12 @@ def cmd_status():
         run_txt = (f'运行中（另一安装副本：{others[0][1]}）' if others else '未运行')
     print(f'鲸鱼娘桌宠 v{version()}   {PLUGIN_DIR}')
     print(f'  桌宠进程 : {run_txt}')
-    sounds = os.path.join(PET_DIR, 'assets', 'sounds')
-    n = len([f for f in os.listdir(sounds) if f.endswith('.wav')]) if os.path.isdir(sounds) else 0
-    print(f'  音效素材 : {n} 个' + ('（含点击「嗷呜/哎呀」）' if n else '（缺失，运行 pet/make_sounds.py 生成）'))
+    short_n, voice_n = len(sound_files('short')), len(sound_files('voice'))
+    if short_n or voice_n:
+        print(f'  音效素材 : 短音效 {short_n} 条 + 整句语音 {voice_n} 条'
+              + ('' if voice_n else '（voice/ 已删，自动降级为纯短音效）'))
+    else:
+        print('  音效素材 : 缺失（运行 pet/import_sound_pack.py "<音效包>" 导入）')
     print()
     for key, agent in AGENTS.items():
         try:
@@ -564,18 +567,33 @@ def cmd_uninstall(agent, purge=False, keep_market=False, config_path=None):
               f'{"、".join(removed) if removed else "没有需要清理的"}')
 
 
-def cmd_sound():
-    """依次试听全部音效（供人工验收）。"""
+def sound_files(pattern=''):
+    """音效文件列表；pattern 为空只列 short/（28 条），否则按相对路径子串过滤。"""
+    import glob
+    out = []
+    for sub in ('short', 'voice'):
+        for p in sorted(glob.glob(os.path.join(PET_DIR, 'assets', 'sounds', sub, '*.wav'))):
+            rel = f'{sub}/{os.path.basename(p)}'
+            if pattern and pattern.lower() not in rel.lower():
+                continue
+            if not pattern and sub != 'short':
+                continue
+            out.append(p)
+    return out
+
+
+def cmd_sound(pattern=''):
+    """试听音效：默认 28 条短音效；`sound voice` 或 `sound celebrate` 过滤试听。"""
     import winsound
-    sounds = os.path.join(PET_DIR, 'assets', 'sounds')
-    names = sorted(f for f in os.listdir(sounds) if f.endswith('.wav')) \
-        if os.path.isdir(sounds) else []
-    if not names:
-        print('  没有音效文件，先运行 pet/make_sounds.py 生成')
+    files = sound_files(pattern)
+    if not files:
+        print(f'  没有匹配「{pattern}」的音效（先运行 pet/import_sound_pack.py 导入）')
         return 1
-    for f in names:
-        print(f'  ▶ {f}')
-        winsound.PlaySound(os.path.join(sounds, f), winsound.SND_FILENAME)
+    print(f'  试听 {len(files)} 条（Ctrl+C 跳过）')
+    for p in files:
+        rel = os.path.relpath(p, os.path.join(PET_DIR, 'assets', 'sounds'))
+        print(f'  ▶ {rel}')
+        winsound.PlaySound(p, winsound.SND_FILENAME)
     return 0
 
 
@@ -604,7 +622,9 @@ def main(argv=None):
     sub.add_parser('start', help='启动桌宠')
     sub.add_parser('stop', help='退出桌宠')
     sub.add_parser('restart', help='重启桌宠')
-    sub.add_parser('sound', help='依次试听全部音效')
+    ps = sub.add_parser('sound', help='试听音效（默认 28 条短音效；可加关键词过滤）')
+    ps.add_argument('pattern', nargs='?', default='',
+                    help='过滤关键词，如 voice / celebrate / coquetry（留空=全部短音效）')
     args = ap.parse_args(argv)
 
     if args.cmd in (None, 'status'):
@@ -629,7 +649,7 @@ def main(argv=None):
         print(f'  {OK if ok else NO} {msg}')
         return 0 if ok else 1
     if args.cmd == 'sound':
-        return cmd_sound()
+        return cmd_sound(args.pattern)
     return 2
 
 

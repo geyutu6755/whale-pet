@@ -1,0 +1,464 @@
+{
+ "aowu": {
+  "text": "嗷呜～",
+  "scene": "点击",
+  "source": "01_新制作短音效",
+  "dir": "short"
+ },
+ "aiya": {
+  "text": "哎呀！",
+  "scene": "被戳",
+  "source": "01_新制作短音效",
+  "dir": "short"
+ },
+ "haoye": {
+  "text": "好耶！",
+  "scene": "开心",
+  "source": "01_新制作短音效",
+  "dir": "short"
+ },
+ "wuhu": {
+  "text": "呜呼！",
+  "scene": "庆祝",
+  "source": "01_新制作短音效",
+  "dir": "short"
+ },
+ "heihei": {
+  "text": "嘿嘿～",
+  "scene": "开心",
+  "source": "01_新制作短音效",
+  "dir": "short"
+ },
+ "huh": {
+  "text": "咦？",
+  "scene": "疑惑",
+  "source": "01_新制作短音效",
+  "dir": "short"
+ },
+ "wawa": {
+  "text": "哇！",
+  "scene": "惊喜",
+  "source": "01_新制作短音效",
+  "dir": "short"
+ },
+ "enheng": {
+  "text": "嗯哼～",
+  "scene": "得意",
+  "source": "01_新制作短音效",
+  "dir": "short"
+ },
+ "heng": {
+  "text": "哼！",
+  "scene": "生气",
+  "source": "01_新制作短音效",
+  "dir": "short"
+ },
+ "wuwu": {
+  "text": "呜呜～",
+  "scene": "委屈",
+  "source": "01_新制作短音效",
+  "dir": "short"
+ },
+ "biebie": {
+  "text": "别、别戳啦！",
+  "scene": "被戳",
+  "source": "01_新制作短音效",
+  "dir": "short"
+ },
+ "yang": {
+  "text": "好痒呀～",
+  "scene": "摸头",
+  "source": "01_新制作短音效",
+  "dir": "short"
+ },
+ "momo": {
+  "text": "摸摸头～",
+  "scene": "摸头",
+  "source": "01_新制作短音效",
+  "dir": "short"
+ },
+ "tie": {
+  "text": "贴贴～",
+  "scene": "撒娇",
+  "source": "01_新制作短音效",
+  "dir": "short"
+ },
+ "bao": {
+  "text": "抱抱嘛～",
+  "scene": "撒娇",
+  "source": "01_新制作短音效",
+  "dir": "short"
+ },
+ "lai": {
+  "text": "来啦！",
+  "scene": "出现",
+  "source": "01_新制作短音效",
+  "dir": "short"
+ },
+ "zai": {
+  "text": "我在呢～",
+  "scene": "回应",
+  "source": "01_新制作短音效",
+  "dir": "short"
+ },
+ "hao": {
+  "text": "好哒！",
+  "scene": "回应",
+  "source": "01_新制作短音效",
+  "dir": "short"
+ },
+ "chong": {
+  "text": "冲鸭！",
+  "scene": "开始",
+  "source": "01_新制作短音效",
+  "dir": "short"
+ },
+ "jiayou": {
+  "text": "加油呀！",
+  "scene": "鼓励",
+  "source": "01_新制作短音效",
+  "dir": "short"
+ },
+ "gaoding": {
+  "text": "搞定啦！",
+  "scene": "完成",
+  "source": "01_新制作短音效",
+  "dir": "short"
+ },
+ "xiexie": {
+  "text": "谢谢你呀～",
+  "scene": "感谢",
+  "source": "01_新制作短音效",
+  "dir": "short"
+ },
+ "kun": {
+  "text": "困困啦～",
+  "scene": "困倦",
+  "source": "01_新制作短音效",
+  "dir": "short"
+ },
+ "wanan": {
+  "text": "晚安呀～",
+  "scene": "休息",
+  "source": "01_新制作短音效",
+  "dir": "short"
+ },
+ "yugan": {
+  "text": "小鱼干！",
+  "scene": "投喂",
+  "source": "01_新制作短音效",
+  "dir": "short"
+ },
+ "aowu2": {
+  "text": "嗷呜，嗷呜～",
+  "scene": "点击",
+  "source": "01_新制作短音效",
+  "dir": "short"
+ },
+ "aiya2": {
+  "text": "哎呀呀～",
+  "scene": "拖动",
+  "source": "01_新制作短音效",
+  "dir": "short"
+ },
+ "haoye2": {
+  "text": "好耶，好耶！",
+  "scene": "庆祝",
+  "source": "01_新制作短音效",
+  "dir": "short"
+ },
+ "coquetry0": {
+  "text": "主人～摸摸我的头嘛～",
+  "scene": "撒娇互动",
+  "source": "02_社区现成语音",
+  "dir": "voice"
+ },
+ "coquetry1": {
+  "text": "人家好无聊呀～陪我玩嘛～",
+  "scene": "撒娇互动",
+  "source": "02_社区现成语音",
+  "dir": "voice"
+ },
+ "coquetry2": {
+  "text": "哼！不理你了……才怪～",
+  "scene": "撒娇互动",
+  "source": "02_社区现成语音",
+  "dir": "voice"
+ },
+ "coquetry3": {
+  "text": "主人主人～抱抱～",
+  "scene": "撒娇互动",
+  "source": "02_社区现成语音",
+  "dir": "voice"
+ },
+ "coquetry4": {
+  "text": "人家今天也很努力哦！",
+  "scene": "撒娇互动",
+  "source": "02_社区现成语音",
+  "dir": "voice"
+ },
+ "coquetry5": {
+  "text": "咦？你一直在偷看我吗～",
+  "scene": "撒娇互动",
+  "source": "02_社区现成语音",
+  "dir": "voice"
+ },
+ "coquetry6": {
+  "text": "好想吃小鱼干…啊不是，是投喂～",
+  "scene": "撒娇互动",
+  "source": "02_社区现成语音",
+  "dir": "voice"
+ },
+ "coquetry7": {
+  "text": "嘿嘿，主人最好了～",
+  "scene": "撒娇互动",
+  "source": "02_社区现成语音",
+  "dir": "voice"
+ },
+ "coquetry8": {
+  "text": "人家想听主人夸夸嘛～",
+  "scene": "撒娇互动",
+  "source": "02_社区现成语音",
+  "dir": "voice"
+ },
+ "coquetry9": {
+  "text": "主人快看！人家超乖的～",
+  "scene": "撒娇互动",
+  "source": "02_社区现成语音",
+  "dir": "voice"
+ },
+ "coquetry10": {
+  "text": "嗯哼～人家在呢！",
+  "scene": "撒娇互动",
+  "source": "02_社区现成语音",
+  "dir": "voice"
+ },
+ "coquetry11": {
+  "text": "主人摸摸头，烦恼全飞走～",
+  "scene": "撒娇互动",
+  "source": "02_社区现成语音",
+  "dir": "voice"
+ },
+ "coquetry12": {
+  "text": "人家的小尾巴摇呀摇～",
+  "scene": "撒娇互动",
+  "source": "02_社区现成语音",
+  "dir": "voice"
+ },
+ "coquetry13": {
+  "text": "今天也要和主人贴贴～",
+  "scene": "撒娇互动",
+  "source": "02_社区现成语音",
+  "dir": "voice"
+ },
+ "coquetry14": {
+  "text": "人家才没有偷懒，是在酝酿啦～",
+  "scene": "撒娇互动",
+  "source": "02_社区现成语音",
+  "dir": "voice"
+ },
+ "running0": {
+  "text": "正在努力思考中…",
+  "scene": "工作思考",
+  "source": "02_社区现成语音",
+  "dir": "voice"
+ },
+ "running1": {
+  "text": "这个有点难，人家在想办法～",
+  "scene": "工作思考",
+  "source": "02_社区现成语音",
+  "dir": "voice"
+ },
+ "running2": {
+  "text": "马上就好啦！",
+  "scene": "工作思考",
+  "source": "02_社区现成语音",
+  "dir": "voice"
+ },
+ "running3": {
+  "text": "工具在手，天下我有～",
+  "scene": "工作思考",
+  "source": "02_社区现成语音",
+  "dir": "voice"
+ },
+ "running4": {
+  "text": "人家正在努力干活呢～",
+  "scene": "工作思考",
+  "source": "02_社区现成语音",
+  "dir": "voice"
+ },
+ "running5": {
+  "text": "别急别急，马上就有结果啦！",
+  "scene": "工作思考",
+  "source": "02_社区现成语音",
+  "dir": "voice"
+ },
+ "running6": {
+  "text": "代码在人家手里服服帖帖～",
+  "scene": "工作思考",
+  "source": "02_社区现成语音",
+  "dir": "voice"
+ },
+ "running7": {
+  "text": "再给人家一点点时间嘛～",
+  "scene": "工作思考",
+  "source": "02_社区现成语音",
+  "dir": "voice"
+ },
+ "running8": {
+  "text": "主人稍等，人家马上就好～",
+  "scene": "工作思考",
+  "source": "02_社区现成语音",
+  "dir": "voice"
+ },
+ "running9": {
+  "text": "加油加油，人家可以的！",
+  "scene": "工作思考",
+  "source": "02_社区现成语音",
+  "dir": "voice"
+ },
+ "celebrate0": {
+  "text": "任务完成啦！主人真棒！",
+  "scene": "完成庆祝",
+  "source": "02_社区现成语音",
+  "dir": "voice"
+ },
+ "celebrate1": {
+  "text": "搞定！夸夸人家嘛～",
+  "scene": "完成庆祝",
+  "source": "02_社区现成语音",
+  "dir": "voice"
+ },
+ "celebrate2": {
+  "text": "耶！工作做完啦！",
+  "scene": "完成庆祝",
+  "source": "02_社区现成语音",
+  "dir": "voice"
+ },
+ "celebrate3": {
+  "text": "全部搞定！人家厉害吧～",
+  "scene": "完成庆祝",
+  "source": "02_社区现成语音",
+  "dir": "voice"
+ },
+ "celebrate4": {
+  "text": "完美收工！撒花～",
+  "scene": "完成庆祝",
+  "source": "02_社区现成语音",
+  "dir": "voice"
+ },
+ "celebrate5": {
+  "text": "大成功！人家超开心的～",
+  "scene": "完成庆祝",
+  "source": "02_社区现成语音",
+  "dir": "voice"
+ },
+ "celebrate6": {
+  "text": "完成了完成了！快夸我～",
+  "scene": "完成庆祝",
+  "source": "02_社区现成语音",
+  "dir": "voice"
+ },
+ "celebrate7": {
+  "text": "一切顺利！主人快看结果～",
+  "scene": "完成庆祝",
+  "source": "02_社区现成语音",
+  "dir": "voice"
+ },
+ "celebrate8": {
+  "text": "收工收工！人家表现不错吧～",
+  "scene": "完成庆祝",
+  "source": "02_社区现成语音",
+  "dir": "voice"
+ },
+ "celebrate9": {
+  "text": "搞定收工！今晚加小鱼干嘛～",
+  "scene": "完成庆祝",
+  "source": "02_社区现成语音",
+  "dir": "voice"
+ },
+ "sad0": {
+  "text": "呜…刚才那步好像出错了…",
+  "scene": "委屈安慰",
+  "source": "02_社区现成语音",
+  "dir": "voice"
+ },
+ "sad1": {
+  "text": "人家有点难过…让主人担心了…",
+  "scene": "委屈安慰",
+  "source": "02_社区现成语音",
+  "dir": "voice"
+ },
+ "sad2": {
+  "text": "别急别急，人家再想想办法～",
+  "scene": "委屈安慰",
+  "source": "02_社区现成语音",
+  "dir": "voice"
+ },
+ "sad3": {
+  "text": "呜哇…这里出了点问题…",
+  "scene": "委屈安慰",
+  "source": "02_社区现成语音",
+  "dir": "voice"
+ },
+ "sad4": {
+  "text": "人家会努力的，再给次机会嘛～",
+  "scene": "委屈安慰",
+  "source": "02_社区现成语音",
+  "dir": "voice"
+ },
+ "sad5": {
+  "text": "有点小挫折，但人家不放弃！",
+  "scene": "委屈安慰",
+  "source": "02_社区现成语音",
+  "dir": "voice"
+ },
+ "sad6": {
+  "text": "主人别生气，人家马上修好～",
+  "scene": "委屈安慰",
+  "source": "02_社区现成语音",
+  "dir": "voice"
+ },
+ "sad7": {
+  "text": "呜呜…人家已经很认真了…",
+  "scene": "委屈安慰",
+  "source": "02_社区现成语音",
+  "dir": "voice"
+ },
+ "todo0": {
+  "text": "进度进展中，主人再等等哦～",
+  "scene": "进度提醒",
+  "source": "02_社区现成语音",
+  "dir": "voice"
+ },
+ "todo1": {
+  "text": "还有几件事要做，主人再等等哦～",
+  "scene": "进度提醒",
+  "source": "02_社区现成语音",
+  "dir": "voice"
+ },
+ "todo2": {
+  "text": "人家记着呢，任务还在进行中～",
+  "scene": "进度提醒",
+  "source": "02_社区现成语音",
+  "dir": "voice"
+ },
+ "todo3": {
+  "text": "进度过半啦，胜利在望～",
+  "scene": "进度提醒",
+  "source": "02_社区现成语音",
+  "dir": "voice"
+ },
+ "approval0": {
+  "text": "需要主人批准啦～",
+  "scene": "确认提醒",
+  "source": "02_社区现成语音",
+  "dir": "voice"
+ },
+ "welcome0": {
+  "text": "主人好～人家是鲸鱼娘！",
+  "scene": "打招呼",
+  "source": "02_社区现成语音",
+  "dir": "voice"
+ }
+}

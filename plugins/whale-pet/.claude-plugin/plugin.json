@@ -1,7 +1,7 @@
 {
   "name": "whale-pet",
-  "version": "1.1.0",
-  "description": "DeepSeek 鲸鱼娘桌宠：118 条台词（含 token/算力梗）+ 点击「嗷呜/哎呀」音效（原创合成）+ Token 用量 HUD（总消耗/缓存命中率/输出速率）+ Agent 状态联动 + MCP 工具 + 一键装卸管理器，适配 ZCode / Claude Code / Codex",
+  "version": "1.1.1",
+  "description": "DeepSeek 鲸鱼娘桌宠：118 条台词 + 77 条语音音效（点击「嗷呜～」、Agent 完成播报）+ Token 用量 HUD（总消耗/缓存命中率/输出速率）+ Agent 状态联动 + MCP 工具 + 一键装卸管理器，适配 ZCode / Claude Code / Codex",
   "author": {
     "name": "whale-pet contributors"
   },

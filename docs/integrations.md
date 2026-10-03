@@ -112,9 +112,16 @@ python plugins/whale-pet/manage.py install mcp --config ~/.cursor/mcp.json  # �
 
 ## 音效
 
-点击她会「嗷呜」、连戳会「哎呀」，庆祝/出错/失落/投喂各有专属音效（8 条原创合成，
-见 `pet/make_sounds.py`）。Agent 侧可 `pet_control(sound_on/sound_off)` 或
-`whale_cli.py sound_off` 控制；托盘菜单「音效」可一键静音。
+她会说话：点击「嗷呜～」、连戳「别、别戳啦！」、投喂「小鱼干！」；Agent 任务完成她会说
+「任务完成啦！主人真棒！」、出错「别急别急，人家再想想办法～」、等待批准
+「需要主人批准啦～」。共 77 条语音（28 条短反应音 + 49 条整句语音），同类随机不重复；
+整句语音播放时气泡台词同步，说的和写的一致。
+
+- **Agent 想自己说台词**：`pet_control(action="say", text="...")`，或 celebrate/error 时带
+  `text` 参数——此时只补一个短反应音，不会抢话
+- **声音开关**：`pet_control(sound_on|sound_off)` / `whale_cli.py sound_off` / 托盘菜单
+- **素材来源与许可**：见 `pet/assets/sounds/CREDITS.md`（`short/` 为 Edge TTS 合成；
+  `voice/` 来自社区项目，非商业许可——删掉该目录即退化为纯短音效，功能不受影响）
 
 ## 通用 CLI（任何能执行命令的 Agent/脚本）
 
