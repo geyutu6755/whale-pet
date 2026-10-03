@@ -258,20 +258,51 @@ def _kill_pet_processes():
         timeout=30)
 
 
+def stub_hooks(pet_plugin_dir):
+    """在插件目录里放两个空操作钩子脚本（供已失效的旧版本路径静默解析）。
+
+    宿主会把 `${CLAUDE_PLUGIN_ROOT}` 展开成带版本号的缓存路径，运行中的会话可能一直
+    指着旧版本目录；那个目录一旦被清掉，钩子就报 "can't open file" 刷屏。
+    留两个空壳让任何残留引用都能安静退出（该目录没有插件清单，不会被当成插件加载）。
+    """
+    try:
+        hooks = os.path.join(pet_plugin_dir, 'hooks')
+        os.makedirs(hooks, exist_ok=True)
+        body = ('# -*- coding: utf-8 -*-\n'
+                '"""占位：让已失效的旧版本钩子路径静默退出（见 manage.py 的说明）。"""\n'
+                'raise SystemExit(0)\n')
+        for name in ('report_usage.py', 'launch_pet.py'):
+            p = os.path.join(hooks, name)
+            if not os.path.exists(p):
+                with open(p, 'w', encoding='utf-8') as f:
+                    f.write(body)
+        return True
+    except Exception:
+        return False
+
+
 def prune_old_copies():
-    """删掉插件缓存里除最新版外的旧副本（CLI 升级后不会自己清，每个好几 MB）。"""
+    """清掉缓存里除最新版外的旧副本（CLI 升级后不会自己清，每个好几 MB）。
+
+    清掉主体内容但**留一个带空壳钩子的目录**：运行中的会话可能还指着旧版本路径，
+    留壳就不会再出现 "can't open file" 刷屏。
+    """
     import glob
     root = os.path.join(HOME, '.zcode', 'cli', 'plugins', 'cache', MARKET, NAME)
     dirs = [d for d in glob.glob(os.path.join(root, '*')) if os.path.isdir(d)]
     if len(dirs) <= 1:
         return []
     dirs.sort(key=os.path.getmtime)
-    removed = []
+    stubbed = []
     for d in dirs[:-1]:
+        ver = os.path.basename(d)
+        had_pet = os.path.exists(os.path.join(d, 'pet', 'whale_pet.py'))
         shutil.rmtree(d, ignore_errors=True)
         if not os.path.isdir(d):
-            removed.append(os.path.basename(d))
-    return removed
+            stub_hooks(d)
+            if had_pet:
+                stubbed.append(ver)
+    return stubbed
 
 
 def newest_plugin_copy():
