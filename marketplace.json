@@ -7,8 +7,8 @@
     {
       "name": "whale-pet",
       "source": "./plugins/whale-pet",
-      "version": "0.2.4",
-      "description": "DeepSeek 鲸鱼娘桌宠：Token 用量 HUD（累计用量/缓存命中率/输出速率）+ Agent 状态联动 + MCP 工具",
+      "version": "1.0.0",
+      "description": "DeepSeek 鲸鱼娘桌宠：118 条台词（含 token/算力梗）+ Token 用量 HUD（总消耗/缓存命中率/输出速率）+ Agent 状态联动 + MCP 工具，适配 ZCode / Claude Code / Codex",
       "displayName": "鲸鱼娘桌宠",
       "displayName_i18n": {
         "zh-CN": "鲸鱼娘桌宠",

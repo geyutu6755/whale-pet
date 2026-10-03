@@ -93,7 +93,6 @@ TRICK_MIN_WAIT_MS, TRICK_MAX_WAIT_MS = 12000, 24000  # 小动作间隔
 # Agent 事件默认持续时长（ms）
 AGENT_STATE_MS = {'think': 15000, 'wait': 8000, 'working': 5000}
 
-INTERP_K = 2                     # 相邻源帧之间插入的混合帧数
 IDLE_HOLD_MS = 420               # idle 常驻帧停驻时长（眨眼节奏）
 
 SCALES = {'小': 0.7, '中': 0.9, '大': 1.1, '特大': 1.35}
@@ -109,33 +108,59 @@ if not os.path.exists(FONT_BOLD):
     FONT_BOLD = FONT_PATH
 
 LINES = {
-    'welcome': ['主人回来啦！鲸鱼娘待命中~', '今天也要一起加油鲸！', '欢迎回来~想我了吗？'],
-    'hello': ['主人叫我吗？', '我在这里呀！', '需要我做什么吗？', '咕噜咕噜~'],
-    'poke': ['呀！', '咕噜？', '怎么啦怎么啦？', '戳戳也没关系哦~', '嘿嘿，痒痒的'],
+    'welcome': ['主人回来啦！鲸鱼娘待命中~', '今天也要一起加油鲸！', '欢迎回来~想我了吗？',
+                '哟，还知道回来呀主人？', '主人消失这么久，是不是背着我吃好吃的去了？',
+                '欢迎回来～我差点要去捞你了🐋'],
+    'hello': ['主人叫我吗？', '我在这里呀！', '需要我做什么吗？', '咕噜咕噜~',
+              '点单吗？我已经准备好啦～', '在等什么？等你一声令下，我立刻营业🎀'],
+    'poke': ['呀！', '咕噜？', '怎么啦怎么啦？', '戳戳也没关系哦~', '嘿嘿，痒痒的',
+             '别戳啦，鱼鳔要漏气了！', '再戳一下就要收费了哦（开玩笑的）',
+             '主人要是累了就戳戳我，免费解压，童叟无欺🫧'],
     'pet': ['好舒服…再摸摸~', '最喜欢主人了！', '咕噜咕噜咕噜♥', '尾巴也要摸摸！',
-            '主人的手好暖和~', '嘿嘿嘿…'],
-    'drag': ['哇哇！要飞起来了！', '轻一点轻一点！', '带我去哪儿呀？', '被拎起来了…'],
-    'feed': ['开动啦~', '好好吃！谢谢主人！', '咕噜咕噜…吃饱了'],
-    'play': ['再来再来！', '接住啦！', '玩球最开心了！'],
-    'sleep': ['Zzz…', '咕噜…咕噜…'],
-    'wake': ['呜…醒了。', '唔…我睡着了吗？', '啊…睡得好香~'],
-    'celebrate': ['完成啦！撒花！', '耶——！主人最棒！', '任务达成，庆祝庆祝！'],
-    'error': ['呜哇！吓我一跳！', '出、出错了？！', '呜呜呜…'],
-    'disappointed': ['没事…下次努力…', '呜…有点失落。'],
+            '主人的手好暖和~', '嘿嘿嘿…', '再摸五分钟……就五分钟……',
+            '摸头可以，不许摸鱼缸！'],
+    'drag': ['哇哇，要飞起来了！', '轻一点轻一点！', '带我去哪儿呀？', '被拎起来了…',
+             '我不是快递！', '放下我，我还想再躺一会儿…'],
+    'feed': ['开动啦~', '好好吃！谢谢主人！', '咕噜咕噜…吃饱了', '这顿是真·白饭，不是 token。'],
+    'play': ['再来再来！', '接住啦！', '玩球最开心了！', '接住这个球给你表演一个喷水🐋'],
+    'sleep': ['Zzz…', '咕噜…咕噜…', '梦里也在帮主人数 bug…', '别叫我，我在梦里做大模型。'],
+    'wake': ['呜…醒了。', '唔…我睡着了吗？', '啊…睡得好香~',
+             '谁把我叫醒的？哦是主人，那没事了。', '呼……急事就摇摇我的尾巴嘛。'],
+    'celebrate': ['完成啦！撒花！', '耶——！主人最棒！', '任务达成，庆祝庆祝！',
+                  '搞定！这单稳得像我的尾巴（虽然它一直在晃）', '收工！限时夸夸窗口已开启👏',
+                  '漂亮！主人可以摸鱼五分钟，我批准了🎫'],
+    'error': ['呜哇！吓我一跳！', '出、出错了？！', '呜呜呜…',
+              '报错而已，又不是世界末日…抱抱先🥺', '这个 bug 好嚣张，看我把它的网线拔了💢'],
+    'disappointed': ['没事…下次努力…', '呜…有点失落。',
+                     '失败了也别低头，我的尾巴借你握一下🐋'],
     'idle': ['主人还在忙吗？', '发呆中…咕噜。', '要不要休息一下呀？', '偷偷看主人…',
-             '今天也要元气满满！', '无聊…陪我玩嘛~'],
-    'walk': ['出去散散步鲸~', '走走走，活动一下！'],
+             '今天也要元气满满！', '无聊…陪我玩嘛~',
+             '主人认真工作的样子，还挺好看的嘛。',
+             '待机中……耳朵可没闲着，我听见 bug 在远处笑😼',
+             '偷偷给你加一颗糖～', '我什么都没说，只是嘴角有点压不住😏',
+             '主人今天的勤奋值有点高，是不是想卷死谁🌪️'],
+    'walk': ['出去散散步鲸~', '走走走，活动一下！', '去深海里溜达一圈～'],
     'walk_done': ['到啦！', '这里风景不错鲸~', '散步真舒服~'],
     'spin': ['转圈圈~咕噜咕噜！', '看我的旋风转！', '头晕了…但好开心！'],
     'headshake': ['摇头晃脑ing~', '咕噜咕噜，摇一摇~', '不听不听，王八念经！'],
     'sway': ['跟着节奏摇一摇~', '左右左，左右左！'],
     'hop': ['蹦蹦跳跳！', '跳得更高！', '兔子也要甘拜下风~'],
     'nod': ['嗯嗯嗯，你说得对！', '点头点头~'],
-    'agent_think': ['主人在思考…我陪你。', '认真工作中…加油！'],
-    'agent_wait': ['在等主人确认哦~', '需要批准啦！'],
-    'agent_working': ['开工开工！', '看我的，马上就好！'],
+    # ---- Token / 算力 / 摸鱼 梗 ----
+    'token': ['让我看看今天吃了多少 token…', '我要吃 token！喂我算力！',
+              '我可不是吃白饭的——我吃 token。', '咕噜咕噜…这顿 token 好香～',
+              '缓存命中！省下来的算力请你吃糖🍬',
+              '我的饭量不大，一天也就几亿 token。',
+              '主人省着点用，我是按 token 长胖的！',
+              '这个月账单别叫我背哦，我只是一只鲸鱼。'],
+    'work': ['开工开工！', '叮叮当当，工具转起来啦🔧', '这速度，主人跟得上吗？',
+             '工具们今天也很听话，毕竟我管饭（虚拟的）。'],
+    'think_line': ['让本鲸想想…尾巴都转起来了。', '思考中，请勿投喂，除非是能补脑的小蛋糕🧁',
+                   '灵感加载中，进度条卡在 99% 是正常现象✨'],
+    'agent_think': ['主人在思考…我陪你。', '认真工作中…加油！', '我先安静地漂一会儿…'],
+    'agent_wait': ['在等主人确认哦~', '需要批准啦！我举着牌子呢🪧'],
+    'agent_working': ['开工开工！', '看我的，马上就好！', '工房一切就绪，随时可以开工哦。'],
 }
-
 
 def load_font(size, bold=False):
     try:
@@ -197,8 +222,6 @@ def draw_heart(d, cx, cy, size, fill, outline=None):
 #    'n': 帧数, 'mode': 'loop'|'pingpong'|'once'|'blink'}
 # --------------------------------------------------------------------------
 class SpritePlayer:
-    K = 2                      # 相邻源帧间插入的混合帧数
-    MOTION_FRAMES = 18         # 运动配方（倾斜/漂浮等）烘焙帧数
 
     def __init__(self, scale):
         self.scale = scale
@@ -1042,6 +1065,8 @@ class PetApp:
             return
         self.hud_until = time.time() + seconds
         self._update_hud(force=True)
+        if random.random() < 0.35:       # 看用量时即兴吐槽一句
+            self.say(random.choice(LINES['token']))
 
     def set_hud_mode(self, mode):
         if mode not in ('auto', 'on', 'off'):
@@ -1178,20 +1203,31 @@ class PetApp:
 
     # ---------------- 对话气泡 ----------------
     def _render_bubble(self, text):
+        """渲染对话气泡：2x 超采样 + alpha 阈值化（文字平滑清晰，无杂边）。
+
+        圆角矩形 + 指向角色的三角尾巴，配色与角色的白围裙/藏青描边一致。
+        """
         if text in self._bubble_cache:
             return self._bubble_cache[text]
         s = self.scale
+        SS = 2
         fs = max(11, min(24, int(self.spr_w / 15)))
         font = load_font(fs)
+        fss = fs * SS
+        font2 = load_font(fss)
         pad = int(9 * s) + 6
         max_w = int(self.spr_w * 1.05)
         lines, cur = [], ''
+        NO_LINE_START = '。，、！？；：）】》」』…～!?,.;:)'
         for ch in text:
             if ch == '\n':
                 lines.append(cur); cur = ''
                 continue
             if font.getlength(cur + ch) > max_w and cur:
-                lines.append(cur); cur = ch
+                if ch in NO_LINE_START:
+                    cur += ch          # 避头尾：标点跟随上一行
+                else:
+                    lines.append(cur); cur = ch
             else:
                 cur += ch
         if cur:
@@ -1202,17 +1238,40 @@ class PetApp:
         w = int(tw) + pad * 2
         h = th + pad * 2
         tail_w = int(11 * s) + 6
-        im = Image.new('RGBA', (w + 8, h + tail_w + 8), (0, 0, 0, 0))
+        PAD = 4 * SS                     # 画布留白（容纳描边与尾巴）
+        W = (w + 8) * SS
+        H = (h + tail_w + 8) * SS
+        im = Image.new('RGBA', (W, H), (0, 0, 0, 0))
         d = ImageDraw.Draw(im)
-        d.rounded_rectangle([2, 2, w + 2, h + 2], radius=int(8 * s) + 5,
-                            fill=(255, 255, 255, 255), outline=NAVY, width=3)
-        cx = w // 2
-        d.polygon([(cx - tail_w // 2, h - 2), (cx + tail_w // 2, h - 2),
-                   (cx, h + tail_w)], fill=(255, 255, 255, 255), outline=NAVY)
-        d.line([(cx - tail_w // 2 + 2, h - 2), (cx, h + tail_w - 2)], fill=(255, 255, 255), width=3)
-        d.line([(cx, h + tail_w - 2), (cx + tail_w // 2 - 2, h - 2)], fill=(255, 255, 255), width=3)
+        x0, y0 = PAD, PAD
+        x1, y1 = PAD + w * SS, PAD + h * SS
+        rad = (int(8 * s) + 5) * SS
+        bw = max(2, 3 * SS)
+        # 主体
+        d.rounded_rectangle([x0, y0, x1, y1], radius=rad,
+                            fill=(255, 255, 255, 255), outline=NAVY, width=bw)
+        # 尾巴（指向角色头部）
+        cx = PAD + (w // 2) * SS
+        tws = tail_w * SS
+        ty0 = y1 - bw // 2
+        ty1 = y1 + tws
+        d.polygon([(cx - tws // 2, ty0), (cx + tws // 2, ty0), (cx, ty1)],
+                  fill=(255, 255, 255, 255), outline=NAVY)
+        # 尾根与主体之间的开口用白线缝合，形成连续的尾巴
+        d.line([(cx - tws // 2 + bw, ty0), (cx + bw // 2, ty1 - bw)],
+               fill=(255, 255, 255, 255), width=bw)
+        d.line([(cx + tws // 2 - bw, ty0), (cx - bw // 2, ty1 - bw)],
+               fill=(255, 255, 255, 255), width=bw)
+        # 文本
         for i, ln in enumerate(lines):
-            d.text((pad + 2, pad + i * lh + (lh - fs) // 2 - 1), ln, font=font, fill=INK)
+            d.text((PAD + (pad + 2) * SS,
+                    PAD + (pad + i * lh + (lh - fs) // 2 - 1) * SS),
+                   ln, font=font2, fill=INK)
+        # 下采样 + alpha 阈值化（零 fringe）
+        im = im.resize((w + 8, h + tail_w + 8), Image.LANCZOS)
+        arr = np.asarray(im).copy()
+        arr[..., 3] = np.where(arr[..., 3] >= 128, 255, 0)
+        im = Image.fromarray(arr, 'RGBA')
         photo = to_photo(im, remap=False)
         self._bubble_cache[text] = photo
         return photo
@@ -1378,7 +1437,12 @@ class PetApp:
                 dur = (ms or AGENT_STATE_MS[etype]) / 1000.0
                 self._set_state(etype, dur)
                 if etype in ('think', 'wait', 'working') and random.random() < 0.6:
-                    self.say(random.choice(LINES[f'agent_{etype}']))
+                    pool = LINES[f'agent_{etype}']
+                    if etype == 'think' and random.random() < 0.4:
+                        pool = LINES['think_line']
+                    elif etype == 'working' and random.random() < 0.4:
+                        pool = LINES['work']
+                    self.say(random.choice(pool))
             elif etype in ('welcome', 'celebrate'):
                 self._interact()
                 self._set_state(etype, (ms or (WELCOME_MS if etype == 'welcome' else CELEBRATE_MS)) / 1000)
