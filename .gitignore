@@ -1,0 +1,7 @@
+__pycache__/
+*.pyc
+pet_config.json
+assets/bridge_token
+plugins/whale-pet/pet/pet_config.json
+plugins/whale-pet/pet/assets/bridge_token
+*.log

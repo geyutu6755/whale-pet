@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "whale-pet": {
+      "command": "python",
+      "args": ["${CLAUDE_PLUGIN_ROOT}/mcp/whale_pet_mcp.py"]
+    }
+  }
+}
