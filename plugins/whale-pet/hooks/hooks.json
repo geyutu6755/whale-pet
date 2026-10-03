@@ -6,7 +6,7 @@
           {
             "type": "command",
             "command": "python \"${CLAUDE_PLUGIN_ROOT}/hooks/launch_pet.py\"",
-            "timeout": 10
+            "timeout": 15
           }
         ]
       }

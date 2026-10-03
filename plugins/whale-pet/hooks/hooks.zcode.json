@@ -1,0 +1,52 @@
+{
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "process",
+            "command": "python",
+            "args": [
+              "-c",
+              "import os, runpy, sys; p = os.path.join(sys.argv[1], 'hooks', 'launch_pet.py'); os.path.exists(p) and runpy.run_path(p, run_name='__main__')",
+              "${CLAUDE_PLUGIN_ROOT}"
+            ],
+            "timeoutMs": 15000
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "process",
+            "command": "python",
+            "args": [
+              "-c",
+              "import os, runpy, sys; p = os.path.join(sys.argv[1], 'hooks', 'report_usage.py'); os.path.exists(p) and runpy.run_path(p, run_name='__main__')",
+              "${CLAUDE_PLUGIN_ROOT}"
+            ],
+            "timeoutMs": 15000
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "hooks": [
+          {
+            "type": "process",
+            "command": "python",
+            "args": [
+              "-c",
+              "import os, runpy, sys; p = os.path.join(sys.argv[1], 'hooks', 'report_usage.py'); os.path.exists(p) and runpy.run_path(p, run_name='__main__')",
+              "${CLAUDE_PLUGIN_ROOT}"
+            ],
+            "timeoutMs": 15000
+          }
+        ]
+      }
+    ]
+  }
+}

@@ -93,7 +93,22 @@ def _post_metrics(payload):
         pass
 
 
+def _pet_uses_rollout():
+    """桌宠当前按模型 I/O 记录采集（ZCode）时，钩子上报是多余的 → 直接退出。"""
+    try:
+        with open(os.path.join(PET_DIR, 'pet_config.json'), encoding='utf-8') as f:
+            src = json.load(f).get('usage_source', 'auto')
+    except Exception:
+        src = 'auto'
+    if src == 'auto':
+        return os.path.isdir(os.path.join(os.path.expanduser('~'),
+                                          '.zcode', 'cli', 'rollout'))
+    return src == 'rollout'
+
+
 def main():
+    if _pet_uses_rollout():
+        return
     try:
         raw = sys.stdin.read()
     except Exception:
