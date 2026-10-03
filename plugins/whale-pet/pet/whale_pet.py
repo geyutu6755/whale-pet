@@ -1084,18 +1084,15 @@ class PetApp:
         for yy in range(H):
             t = yy / max(1, H - 1)
             d.line([(M, M + yy), (M + W, M + yy)],
-                   fill=(int(238 - 20 * t), int(246 - 14 * t), int(255 - 6 * t), 255))
+                   fill=(int(242 - 9 * t), int(248 - 7 * t), int(255 - 3 * t), 255))
         im.putalpha(mask)
         d = ImageDraw.Draw(im)
-        # 玻璃斜向高光（低对比柔面）
-        d.polygon([(M + radius, M + radius), (M + int(W * 0.55), M + radius),
-                   (M + radius, M + int(H * 0.92))], fill=(255, 255, 255, 255))
         # 外框（蓝灰）+ 顶部内高光
         d.rounded_rectangle([M, M, M + W - 1, M + H - 1], radius=radius,
                             outline=(158, 190, 224, 255), width=max(2, SS))
         d.line([(M + radius + 2, M + max(2, SS + 1)),
                 (M + W - radius - 2, M + max(2, SS + 1))],
-               fill=(255, 255, 255, 255), width=max(1, SS))
+               fill=(252, 254, 255, 255), width=max(1, SS))
         # 三栏 + 竖向分隔线
         pad_x = int(13 * SS * s)
         pad_y = int(7 * SS * s)

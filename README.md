@@ -11,7 +11,7 @@
 
 - **桌宠**：正版鲸鱼娘形象，待机眨眼、走路散步、转圈圈、摇头晃脑、摇摆、蹦跳、点头、
   睡觉 Zzz、开心飘爱心、被拖拽摇摆——全部帧预渲染，60fps 无卡顿
-- **Token 用量 HUD**（蓝调毛玻璃卡片，默认点击宠物时短暂显示 8 秒后自动隐藏）：
+- **Token 用量 HUD**（均匀渐变毛玻璃卡片，默认点击宠物时短暂显示 8 秒后自动隐藏）：
   - 总 Token 消耗量（含输入/输出明细）
   - 缓存命中率（cache_read ÷ (cache_read + cache_creation + input)，带进度条）
   - 响应次数 + 最近输出速率（tok/s，按回复耗时估算）
@@ -34,6 +34,27 @@
 1. `git clone https://github.com/geyutu6755/whale-pet` 到本地
 2. 添加市场时粘贴仓库根目录路径（含 `marketplace.json` 的那层）
 3. 同样在 Personal 里 Install
+
+## 🤝 适配哪些 Agent？
+
+| Agent | 支持方式 |
+|-------|---------|
+| **ZCode** | 原生插件（本仓库即插件市场，添加后安装即可） |
+| **Claude Code** | 原生插件（仓库含 `.claude-plugin` 双格式：`/plugin marketplace add geyutu6755/whale-pet`） |
+| **Codex** | 手动接入：MCP 配置（`~/.codex/config.toml`）+ 启动脚本，见 [docs/integrations.md](docs/integrations.md) |
+| **其他支持 MCP 的 Agent**（Cursor/Windsurf/Cline…） | 添加 MCP 服务器配置（JSON 片段见文档） |
+| **任何能跑命令的 Agent** | `whale_cli.py` CLI / HTTP 桥 |
+
+桌宠核心与 Agent 完全解耦：独立进程 + 本地 HTTP 桥（`127.0.0.1:37821`）
++ CLI + MCP 服务器，换 Agent 不用换桌宠。完整接入说明见
+**[docs/integrations.md](docs/integrations.md)**。
+
+## 🔄 数据实时性
+
+面板数据**全自动实时更新**，无需任何手动刷新：
+- 每次回复/工具调用结束 → Agent 钩子自动上报用量 → 面板数字立即变化
+- 面板隐藏期间数据照常累计，点开即是最新值
+- 面板显示中若有新数据到达，当场刷新
 
 ## 🎮 交互
 
