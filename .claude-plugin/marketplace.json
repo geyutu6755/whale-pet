@@ -7,15 +7,15 @@
     {
       "name": "whale-pet",
       "source": "./plugins/whale-pet",
-      "version": "1.3.0",
-      "description": "118 条台词 + 77 条语音音效（开关+音量可调）+ 按天用量统计（今日面板自动归零，近 7/30 天视图，requestId 去重绝不重复计）+ Agent 状态联动 + MCP 工具 + 一键装卸管理器，适配 ZCode / Claude Code / Codex",
+      "version": "1.4.0",
+      "description": "118 条台词 + 77 条语音音效（开关+音量）+ 肉嘟嘟伪 3D 皮肤（可切回原版）+ 按天用量统计（今日自动归零，近 7/30 天视图）+ Agent 状态联动 + MCP 工具 + 一键装卸管理器，适配 ZCode / Claude Code / Codex",
       "displayName": "鲸鱼娘桌宠",
       "displayName_i18n": {
         "zh-CN": "鲸鱼娘桌宠",
         "en-US": "Whale Girl Pet"
       },
       "description_i18n": {
-        "zh-CN": "DeepSeek 鲸鱼娘桌宠：桌面陪伴 + 77 条语音音效 + 按天用量统计（今日/近7天/近30天）+ Agent 状态联动，支持 MCP 工具控制与一键安装/卸载。",
+        "zh-CN": "DeepSeek 鲸鱼娘桌宠：肉嘟嘟伪 3D 皮肤 + 77 条语音音效 + 按天用量统计（今日/近7天/近30天）+ Agent 状态联动，支持 MCP 工具控制与一键安装/卸载。",
         "en-US": "DeepSeek whale girl desktop pet with token usage HUD (totals, cache hit rate, output rate) and agent state integration via MCP."
       },
       "category": "productivity",

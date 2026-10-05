@@ -49,6 +49,7 @@ from PIL import Image, ImageDraw, ImageFont, ImageTk
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 ASSETS = os.path.join(BASE_DIR, 'assets')
 SHEETS_DIR = os.path.join(ASSETS, 'sheets')
+SHEETS_PUFFY = os.path.join(ASSETS, 'sheets-puffy')   # 「肉嘟嘟」伪 3D 皮肤（make_skin_puffy.py 生成）
 SOUNDS_DIR = os.path.join(ASSETS, 'sounds')
 CONFIG_PATH = os.path.join(BASE_DIR, 'pet_config.json')
 TOKEN_PATH = os.path.join(ASSETS, 'bridge_token')
@@ -190,6 +191,7 @@ def load_config():
            'bridge_enabled': True, 'bridge_port': BRIDGE_PORT_DEFAULT,
            # 音效：默认开启，音量 中；sound_chatter=思考/工作中的碎碎念（默认关，免打扰）
            'sound': True, 'sound_volume': VOLUMES['中'], 'sound_chatter': False,
+           'skin': 'puffy',
            # 用量来源：auto=有 ZCode 模型 I/O 记录就用它（钩子在 ZCode 上不触发）
            'usage_source': 'auto'}
     try:
@@ -243,9 +245,11 @@ def draw_heart(d, cx, cy, size, fill, outline=None):
 # --------------------------------------------------------------------------
 class SpritePlayer:
 
-    def __init__(self, scale):
+    def __init__(self, scale, skin='puffy'):
         self.scale = scale
-        with open(os.path.join(SHEETS_DIR, 'manifest.json'), encoding='utf-8') as f:
+        self.sheets_dir = (SHEETS_PUFFY if (skin == 'puffy' and os.path.isdir(SHEETS_PUFFY))
+                           else SHEETS_DIR)
+        with open(os.path.join(self.sheets_dir, 'manifest.json'), encoding='utf-8') as f:
             manifest = json.load(f)
         self.states = manifest['characters']['whale-girl']['states']
         self.frame_n = 256
@@ -254,7 +258,7 @@ class SpritePlayer:
         # 1) 切片全部源帧（保留 PIL，供插值）
         self._raw = {}
         for state, cfg in self.states.items():
-            sheet = Image.open(os.path.join(SHEETS_DIR, cfg['sheet'])).convert('RGBA')
+            sheet = Image.open(os.path.join(self.sheets_dir, cfg['sheet'])).convert('RGBA')
             n = cfg['frames']
             fw = sheet.width // n
             for flip in (1, -1):
@@ -271,7 +275,7 @@ class SpritePlayer:
         icfg = self.states['idle']
         ifw = sheet.width // icfg['frames'] if False else sheet.width // 3
         # 注意：上面 sheet 是最后一个状态的图；idle 单独取
-        idle_sheet = Image.open(os.path.join(SHEETS_DIR, 'idle.png')).convert('RGBA')
+        idle_sheet = Image.open(os.path.join(self.sheets_dir, 'idle.png')).convert('RGBA')
         ifw = idle_sheet.width // 3
         for flip in (1, -1):
             fr = idle_sheet.crop((0, 0, ifw, idle_sheet.height)).resize(
@@ -477,6 +481,7 @@ class BridgeServer:
                         'hidden': app.hidden, 'scale': app.scale,
                         'sound': bool(app.sound.enabled),
                         'sound_volume': round(float(app.sound.volume), 2),
+                        'skin': app.skin,
                         'usage_source': app.usage_source,
                         'x': app.px, 'y': app.py, 'ts': time.time()})
                 if self.path.startswith('/metrics'):
@@ -1000,7 +1005,9 @@ class PetApp:
         self._vol_var = tk.DoubleVar(
             value=float(self.cfg.get('sound_volume', VOLUMES['中'])))
         self._hud_view_var = tk.StringVar(value=self.hud_view)
-        self.player = SpritePlayer(self.scale)
+        self.skin = self.cfg.get('skin', 'puffy')
+        self._skin_var = tk.StringVar(value=self.skin)
+        self.player = SpritePlayer(self.scale, self.skin)
         self._refresh_base()
         self._bind_events()
         self._start_tray()
@@ -1981,6 +1988,11 @@ class PetApp:
                                  checked=lambda i: bool(self.cfg.get('topmost'))),
                 pystray.MenuItem('音效', cmd('sound'),
                                  checked=lambda i: self.sound.enabled),
+                pystray.MenuItem('皮肤', pystray.Menu(
+                    pystray.MenuItem('立体圆润', cmd(('skin', 'puffy')), radio=True,
+                                     checked=lambda i: self.skin == 'puffy'),
+                    pystray.MenuItem('原版平面', cmd(('skin', 'flat')), radio=True,
+                                     checked=lambda i: self.skin == 'flat'))),
                 pystray.MenuItem('音量', pystray.Menu(
                     *(pystray.MenuItem(k, cmd(('sound_volume', v)),
                                        checked=lambda i, v=v: abs(self.sound.volume - v) < 1e-6)
@@ -2067,6 +2079,9 @@ class PetApp:
                 self.set_sound(False)
             elif etype == 'sound_volume' and value is not None:
                 self.set_volume(value)
+            elif etype == 'skin':
+                self.set_skin(text if text in ('puffy', 'flat')
+                              else ('flat' if self.skin == 'puffy' else 'puffy'))
             elif etype in AGENT_STATE_MS:
                 self._interact()
                 dur = (ms or AGENT_STATE_MS[etype]) / 1000.0
@@ -2142,6 +2157,8 @@ class PetApp:
                 self.set_sound(not self.sound.enabled)
             elif cmd == 'sound_chatter':
                 self.set_sound_chatter(not bool(self.cfg.get('sound_chatter')))
+            elif cmd == 'skin':
+                self.set_skin('flat' if self.skin == 'puffy' else 'puffy')
             elif cmd == 'sleep_now':
                 self._go_sleep()
             elif cmd == 'hud_toggle':
@@ -2162,6 +2179,8 @@ class PetApp:
                         self.set_hud_mode(val)
                     elif kind == 'hud_view':
                         self.set_hud_view(val)
+                    elif kind == 'skin':
+                        self.set_skin(val)
                     elif kind == 'sound_volume':
                         self.set_volume(val)
 
@@ -2214,6 +2233,33 @@ class PetApp:
             self.hidden = True
             self._move_window(-6000, -6000)
 
+    def _rebuild_sprites(self):
+        """换皮肤/尺寸后重建精灵：清掉画布上的旧图，下一 tick 自动重画。"""
+        self.player = SpritePlayer(self.scale, self.skin)
+        self._hearts = None
+        self.canvas.delete('all')
+        self.base_item = None
+        self.bubble_item = None
+        self.hud_item = None
+        self._metrics_dirty = True
+        self.particles.clear()
+        self.bubble = None
+        self.bubble_queue.clear()
+        self._refresh_base()
+        self._place()
+
+    def set_skin(self, skin):
+        """切换皮肤（puffy=立体圆润 / flat=原版平面）。"""
+        skin = skin if skin in ('puffy', 'flat') else 'puffy'
+        if skin == self.skin and self.player.sheets_dir == (
+                SHEETS_PUFFY if skin == 'puffy' else SHEETS_DIR):
+            return
+        self.skin = skin
+        self.cfg['skin'] = skin
+        save_config(self.cfg)
+        self._rebuild_sprites()
+        self.say('换上新皮肤啦，肉嘟嘟的！' if skin == 'puffy' else '换回原版平面啦～')
+
     def set_scale(self, val):
         if abs(self.scale - val) < 1e-6:
             return
@@ -2222,19 +2268,11 @@ class PetApp:
         self.cfg['scale'] = val
         save_config(self.cfg)
         self._compute_layout()
-        self.player = SpritePlayer(self.scale)
-        self._hearts = None
+        self._rebuild_sprites()
         self.sx += self.anchor_x - old_ax
         self.sy += self.anchor_y - old_ay
         self.root.geometry(f'{self.win_w}x{self.win_h}+{self.px}+{self.py}')
         self.canvas.config(width=self.win_w, height=self.win_h)
-        self.canvas.delete('all')
-        self.base_item = None
-        self.bubble_item = None
-        self.hud_item = None
-        self._metrics_dirty = True
-        self.particles.clear()
-        self.bubble = None
         self.bubble_queue.clear()
         self._refresh_base()
         self._place()

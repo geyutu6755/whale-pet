@@ -20,6 +20,7 @@
   python whale_cli.py hide | show          # 隐藏/显示
   python whale_cli.py sound_on | sound_off # 开启/静音音效
   python whale_cli.py sound_volume 0.7     # 设置音效音量（0~1）
+  python whale_cli.py skin [puffy|flat]    # 切换皮肤（立体圆润/原版平面，缺省=切换）
   python whale_cli.py quit                 # 退出桌宠
 
 集成示例:
@@ -119,10 +120,13 @@ def main(argv):
             except (TypeError, ValueError):
                 print('用法: whale_cli.py sound_volume 0.0~1.0', file=sys.stderr)
                 return 2
+        elif cmd == 'skin':
+            if arg:
+                event['text'] = arg
         elif cmd not in ('welcome', 'celebrate', 'error', 'disappointed',
                          'feed', 'play', 'pat', 'idle', 'sleep', 'hide', 'show',
                          'quit', 'spin', 'headshake', 'sway', 'hop', 'nod',
-                         'trick', 'sound_on', 'sound_off', 'sound_volume'):
+                         'trick', 'sound_on', 'sound_off', 'sound_volume', 'skin'):
             print(f'未知命令: {cmd}', file=sys.stderr)
             return 2
         print(json.dumps(_post(event), ensure_ascii=False))
