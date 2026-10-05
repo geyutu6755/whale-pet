@@ -257,6 +257,7 @@ class SpritePlayer:
 
         # 1) 切片全部源帧（保留 PIL，供插值）
         self._raw = {}
+        self._squash_cache = {}                    # (state, flip, idx, level) -> PhotoImage
         for state, cfg in self.states.items():
             sheet = Image.open(os.path.join(self.sheets_dir, cfg['sheet'])).convert('RGBA')
             n = cfg['frames']
@@ -438,6 +439,29 @@ class SpritePlayer:
     def seq_of(self, state, flip):
         """返回状态的播放序列：程序化动作优先，其次素材插值序列。"""
         return self.actions.get((state, flip)) or self.seq.get((state, flip))
+
+    def squash_photo(self, base, state, flip, idx, level):
+        """果冻挤压变体（懒生成缓存）：level 1=压扁(矮胖) / -1=拉伸(瘦长)。
+
+        以底边中心为锚缩放（贴地不悬空）；程序化动作没有 _raw 帧，返回原图。
+        """
+        if level == 0:
+            return base
+        key = (state, flip, idx, level)
+        ph = self._squash_cache.get(key)
+        if ph is not None:
+            return ph
+        raw = self._raw.get((state, flip, idx))
+        if raw is None:
+            return base
+        sx, sy = (1.06, 0.935) if level > 0 else (0.955, 1.05)
+        nw, nh = max(1, round(self.size * sx)), max(1, round(self.size * sy))
+        im = raw.resize((nw, nh), Image.LANCZOS)
+        canvas = Image.new('RGBA', (self.size, self.size), (0, 0, 0, 0))
+        canvas.paste(im, ((self.size - nw) // 2, self.size - nh))
+        ph = to_photo(canvas)
+        self._squash_cache[key] = ph
+        return ph
 
     def frame_offset(self, state, flip, idx):
         s = self.seq_of(state, flip)
@@ -998,6 +1022,9 @@ class PetApp:
         # 用量面板视图：today / 7d / 30d（右键或托盘的「用量统计」切换）
         self.hud_view = 'today'
         self._metrics_day = time.strftime('%Y-%m-%d')
+        # Q弹果冻动画：触发后在持续时间内做衰减的压扁/拉伸
+        self._jelly_until = 0.0
+        self._jelly_dur = 0.32
 
         self._compute_layout()
         self._build_window()
@@ -1068,6 +1095,14 @@ class PetApp:
     def _refresh_base(self, photo=None):
         if photo is None:
             photo = self._current_photo()
+            if self._jelly_until > time.time():
+                # Q弹果冻：衰减正弦在 压扁/拉伸 间交替（先压后弹）
+                p = 1.0 - (self._jelly_until - time.time()) / max(1e-3, self._jelly_dur)
+                wave = math.sin(p * math.pi * 2.5) * math.exp(-2.6 * p)
+                level = 1 if wave > 0.25 else (-1 if wave < -0.25 else 0)
+                if level:
+                    photo = self.player.squash_photo(photo, self.state, self.flip,
+                                                     self.frame, level)
         if getattr(self, 'base_item', None) is None:
             self.base_item = self.canvas.create_image(0, 0, image=photo, anchor='s')
         else:
@@ -1143,6 +1178,11 @@ class PetApp:
         self.root.bind('<Escape>', lambda e: self.quit())
 
     # ---------------- 交互 ----------------
+    def jelly(self, dur=0.32):
+        """Q弹一下：在 dur 秒内做衰减的果冻挤压（先压扁再回弹）。"""
+        self._jelly_until = time.time() + dur
+        self._jelly_dur = dur
+
     def _voice(self, event):
         """播放事件语音。返回 True = 气泡已交给语音台词（调用方不必再补台词）。
 
@@ -1196,6 +1236,7 @@ class PetApp:
         if is_double:   # 双击 = 玩耍
             self._interact()
             self._set_state('play', TRANSIENT_MS / 1000)
+            self.jelly(0.36)
             if not self._voice('play'):
                 self.say(random.choice(LINES['play']))
             self.drag = None
@@ -1245,6 +1286,7 @@ class PetApp:
         self.drag = None
         if d['moved']:
             self._clamp_and_save()
+            self.jelly(0.4)
             if d.get('wake_on_release'):
                 self.sleeping_anim = False
                 self._set_state('wake', WAKE_MS / 1000)
@@ -1259,6 +1301,7 @@ class PetApp:
             self.say(random.choice(LINES['pet']))
             return
         if self._interact():          # 刚被叫醒（wake 台词已由 _interact 说出）
+            self.jelly(0.3)
             self._voice('wake')
             return
         self._set_state('joy', JOY_MS / 1000)
@@ -1400,6 +1443,8 @@ class PetApp:
             self._update_drag(now)
             self._update_state(now)
             self._animate(now)
+            if self._jelly_until > now:
+                self._refresh_base()               # Q弹进行中：逐 tick 换挤压变体
             self._update_particles()
             self._update_hud()
             if self.bubble and now > self.bubble['until']:
@@ -2047,11 +2092,13 @@ class PetApp:
                 self._interact()
                 self._set_state('joy', JOY_MS / 1000)
                 self._spawn_hearts(3)
+                self.jelly(0.34)
                 if not self._voice('pet'):
                     self.say(random.choice(LINES['pet']))
             elif etype in ('feed', 'play'):
                 self._interact()
                 self._set_state(etype, TRANSIENT_MS / 1000)
+                self.jelly(0.34)
                 if not self._voice(etype):
                     self.say(random.choice(LINES[etype]))
             elif etype == 'idle':
@@ -2107,6 +2154,7 @@ class PetApp:
                     self.say(random.choice(LINES[etype]))
                 if etype == 'celebrate':
                     self._spawn_hearts(2)
+                    self.jelly(0.5)
             elif etype in ('error', 'disappointed'):
                 self._set_state(etype, (ms or (ERROR_MS if etype == 'error' else DISAPPOINTED_MS)) / 1000)
                 if text:
@@ -2136,11 +2184,13 @@ class PetApp:
             elif cmd == 'feed':
                 self._interact()
                 self._set_state('eat', TRANSIENT_MS / 1000)
+                self.jelly(0.34)
                 if not self._voice('feed'):
                     self.say(random.choice(LINES['feed']))
             elif cmd == 'play':
                 self._interact()
                 self._set_state('play', TRANSIENT_MS / 1000)
+                self.jelly(0.36)
                 if not self._voice('play'):
                     self.say(random.choice(LINES['play']))
             elif cmd in ('spin', 'headshake', 'sway', 'hop', 'nod', 'trick'):

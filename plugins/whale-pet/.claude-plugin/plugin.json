@@ -1,6 +1,6 @@
 {
   "name": "whale-pet",
-  "version": "1.4.0",
+  "version": "1.4.1",
   "description": "118 条台词 + 77 条语音音效（开关+音量）+ 肉嘟嘟伪 3D 皮肤（可切回原版）+ 按天用量统计（今日自动归零，近 7/30 天视图）+ Agent 状态联动 + MCP 工具 + 一键装卸管理器，适配 ZCode / Claude Code / Codex",
   "author": {
     "name": "whale-pet contributors"
