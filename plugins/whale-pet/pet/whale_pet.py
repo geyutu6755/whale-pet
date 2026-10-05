@@ -580,54 +580,46 @@ class BridgeServer:
 #   整句语音（voice/，口播整句）：Agent 联动与待机闲聊时使用，气泡同步显示她说的那句话
 # --------------------------------------------------------------------------
 SOUND_POOLS = {
-    # ---- 本地互动：只有用户动手时才会出声（气泡仍走 118 条台词）----
-    'tap':          ('aowu', 'aowu2', 'hao', 'zai'),          # 点击
-    'poke':         ('aiya', 'biebie', 'heng'),               # 连戳（不耐烦）
-    'pet':          ('momo', 'yang', 'tie', 'bao', 'xiexie',  # 抚摸/被夸奖（撒娇全在这）
-                     'coquetry0', 'coquetry1', 'coquetry2', 'coquetry3',
-                     'coquetry4', 'coquetry5', 'coquetry6', 'coquetry7',
-                     'coquetry8', 'coquetry9', 'coquetry10', 'coquetry11',
-                     'coquetry12', 'coquetry13', 'coquetry14'),
-    'drag':         ('aiya2', 'wawa'),                        # 被拎起来
-    'play':         ('haoye', 'heihei', 'wuhu', 'gaoding', 'enheng'),
-    'feed':         ('yugan',),                               # 投喂
-    'wake':         ('zai', 'hao', 'lai'),                    # 睡醒（点她唤醒）
-    'sleep':        ('kun', 'wanan'),                         # 哄睡（菜单主动触发）
-    'show':         ('lai', 'hao'),                           # 从隐藏恢复
-    # ---- Agent 状态联动（整句语音，气泡与语音同步）----
-    'welcome':      ('welcome0', 'lai', 'hao'),
+    # ---- 全部优先用社区原声（voice/，鲸鱼娘真配音）；TTS 合成音已退出池子 ----
+    'tap':          ('coquetry10', 'coquetry3', 'coquetry7',     # 在呢/抱抱/主人最好
+                     'coquetry9', 'coquetry0', 'coquetry13'),
+    'poke':         ('coquetry2', 'coquetry5', 'coquetry1',      # 哼！不理你/偷看/好无聊
+                     'coquetry4'),
+    'pet':          ('coquetry0', 'coquetry11', 'coquetry13',    # 摸摸头系
+                     'coquetry3', 'coquetry7', 'coquetry8',
+                     'coquetry12', 'coquetry9', 'coquetry10',
+                     'coquetry14'),
+    'drag':         ('coquetry5', 'coquetry2'),                  # 被拎起来（咦？/哼！）
+    'play':         ('coquetry1', 'coquetry9', 'coquetry4',      # 陪我玩/超乖/努力
+                     'coquetry6', 'coquetry12'),
+    'feed':         ('coquetry6',),                              # 好想吃小鱼干…是投喂～
+    'wake':         ('coquetry10', 'coquetry9'),                 # 在呢/超乖
+    'show':         ('welcome0', 'coquetry10'),                  # 主人好～/在呢
+    'welcome':      ('welcome0', 'coquetry10', 'coquetry3'),
     'celebrate':    ('celebrate0', 'celebrate1', 'celebrate2', 'celebrate3',
                      'celebrate4', 'celebrate5', 'celebrate6', 'celebrate7',
-                     'celebrate8', 'celebrate9', 'wuhu', 'haoye2', 'gaoding'),
-    'error':        ('heng', 'aiya'),
-    'disappointed': ('sad0', 'sad1', 'sad2', 'sad3', 'sad4', 'sad5', 'sad6',
-                     'sad7', 'wuwu'),
+                     'celebrate8', 'celebrate9'),
+    'error':        ('sad0', 'sad3'),                            # 呜…出错了/呜哇…
+    'disappointed': ('sad1', 'sad2', 'sad4', 'sad5', 'sad6', 'sad7'),
     'wait':         ('approval0',),
-    # 思考/工作碎碎念：由 sound_chatter 开关控制（默认关，免得一直念叨）
     'think':        ('running0', 'running1', 'running2', 'running3', 'running4',
                      'running5', 'running6', 'running7', 'running8', 'running9',
-                     'huh', 'todo0', 'todo1', 'todo2', 'todo3'),
+                     'todo0', 'todo1', 'todo2', 'todo3'),
     'working':      ('running0', 'running1', 'running2', 'running3', 'running4',
                      'running5', 'running6', 'running7', 'running8', 'running9',
-                     'chong', 'jiayou', 'todo0', 'todo1', 'todo2', 'todo3'),
+                     'todo0', 'todo1', 'todo2', 'todo3'),
 }
 
 # 用户主动触发的动作：可以打断正在播的语音（点她要有即时反馈）
 URGENT_EVENTS = ('tap', 'poke', 'pet', 'drag', 'play', 'feed', 'wake', 'show',
                  'sleep')
 
-# Agent 自带台词时用的短反应音：不抢话，只做情绪点缀
-SOUND_INTERJECTIONS = {
-    'welcome': ('lai', 'hao'),
-    'celebrate': ('wuhu', 'haoye2'),
-    'error': ('heng', 'aiya'),
-    'disappointed': ('wuwu',),
-}
+# 反复触发类事件的最小间隔（秒）：整句语音比短音效更容易腻，间隔放宽
+SOUND_COOLDOWN = {'tap': 5.0, 'poke': 5.0, 'pet': 8.0, 'drag': 6.0, 'play': 8.0,
+                  'feed': 6.0, 'welcome': 10.0, 'celebrate': 12.0, 'think': 25.0,
+                  'working': 20.0, 'wait': 8.0}
 
-# 反复触发类事件的最小间隔（秒）：陪伴语音不该变成噪音
-SOUND_COOLDOWN = {'celebrate': 12.0, 'think': 25.0, 'working': 20.0, 'wait': 8.0}
-
-SYNC_TEXT_MIN = 6      # 台词 ≥6 字 → 气泡同步显示她说的话；短促音仍配 118 条台词
+SYNC_TEXT_MIN = 6      # 台词 ≥6 字 → 气泡同步显示她说的话（社区原声整句都会同步）
 
 
 class SoundEngine:
@@ -2147,9 +2139,8 @@ class PetApp:
             elif etype in ('welcome', 'celebrate'):
                 self._interact()
                 self._set_state(etype, (ms or (WELCOME_MS if etype == 'welcome' else CELEBRATE_MS)) / 1000)
-                if text:                  # Agent 自带台词：只补短反应音，不抢话
+                if text:                  # Agent 自带台词：只改气泡，不出声
                     self.say(text)
-                    self.sound.play_any(SOUND_INTERJECTIONS.get(etype, ()))
                 elif not self._voice(etype):
                     self.say(random.choice(LINES[etype]))
                 if etype == 'celebrate':
@@ -2159,7 +2150,6 @@ class PetApp:
                 self._set_state(etype, (ms or (ERROR_MS if etype == 'error' else DISAPPOINTED_MS)) / 1000)
                 if text:
                     self.say(text)
-                    self.sound.play_any(SOUND_INTERJECTIONS.get(etype, ()))
                 elif not self._voice(etype):
                     self.say(random.choice(LINES[etype]))
         except Exception as e:
@@ -2262,7 +2252,7 @@ class PetApp:
         if val > 0 and not self.sound.enabled:
             self.set_sound(True)
         else:
-            self.sound.play_any(('aowu', 'hao'))     # 听一下当前音量
+            self.sound.play_any(('coquetry10', 'coquetry3'))
 
     def set_sound(self, val):
         self.sound.enabled = bool(val)
@@ -2270,7 +2260,7 @@ class PetApp:
         save_config(self.cfg)
         self._sound_var.set(bool(val))
         if val:
-            self.sound.play_any(('aowu', 'aowu2'))
+            self.sound.play_any(('coquetry10', 'coquetry3'))
 
     def tray_hide(self):
         if self.hidden:
@@ -2340,7 +2330,7 @@ class PetApp:
 
     def _welcome(self):
         self._set_state('welcome', WELCOME_MS / 1000)
-        self.sound.play_any(('lai', 'aowu', 'hao'))
+        self.sound.play_any(('coquetry10', 'coquetry3'))
         hour = time.localtime().tm_hour
         key = 'welcome' if (hour >= 18 or hour < 11) else 'hello'
         self.root.after(500, lambda: self.say(random.choice(LINES[key])))
