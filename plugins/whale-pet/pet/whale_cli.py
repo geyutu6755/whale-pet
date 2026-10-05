@@ -5,6 +5,7 @@
 用法:
   python whale_cli.py say "任务完成，已部署！"
   python whale_cli.py celebrate            # 任务完成庆祝
+  python whale_cli.py metrics [天数]        # 用量统计（默认今天；可看近 7/30 天）
   python whale_cli.py error                # 出错惊吓
   python whale_cli.py disappointed         # 失落
   python whale_cli.py think [毫秒]         # 沉思陪伴（Agent 思考中）
@@ -62,12 +63,16 @@ def _post(event):
         return json.loads(r.read().decode('utf-8'))
 
 
-def _get_state():
+def _get(path):
     port, token = _load()
-    req = urllib.request.Request(
-        f'http://127.0.0.1:{port}/state', headers={'X-Token': token})
+    req = urllib.request.Request(f'http://127.0.0.1:{port}{path}',
+                                 headers={'X-Token': token})
     with urllib.request.urlopen(req, timeout=3) as r:
         return json.loads(r.read().decode('utf-8'))
+
+
+def _get_state():
+    return _get('/state')
 
 
 def main(argv):
@@ -79,6 +84,22 @@ def main(argv):
     try:
         if cmd == 'state':
             print(json.dumps(_get_state(), ensure_ascii=False))
+            return 0
+        if cmd == 'metrics':
+            days = 1
+            if arg:
+                days = max(1, min(365, int(arg)))
+            m = _get(f'/metrics?days={days}')
+            if days > 1:
+                print(f'近 {days} 天合计 {m["total_tokens"]} tok'
+                      f'（输入 {m["input_tokens"]} / 输出 {m["output_tokens"]}），'
+                      f'命中率 {m["cache_hit_rate"] * 100:.0f}%，响应 {m["responses"]} 次')
+                for d, v in (m.get('per_day') or []):
+                    print(f'  {d}  {v}')
+            else:
+                print(f'{m.get("day", "today")}  '
+                      f'输入 {m.get("input_tokens", 0)} tok / 输出 {m.get("output_tokens", 0)} tok，'
+                      f'命中率 {m.get("cache_hit_rate", 0) * 100:.0f}%，响应 {m.get("responses", 0)} 次')
             return 0
         event = {'type': cmd}
         if cmd == 'say':

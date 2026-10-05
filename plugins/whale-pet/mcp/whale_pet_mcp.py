@@ -56,8 +56,12 @@ TOOLS = [
     },
     {
         'name': 'pet_metrics',
-        'description': '查询鲸鱼娘 HUD 的 Token 用量统计：累计输入/输出、缓存命中率、最近输出速率',
-        'inputSchema': {'type': 'object', 'properties': {}},
+        'description': '查询鲸鱼娘 HUD 的 Token 用量统计：今日输入/输出、缓存命中率、输出速率；'
+                       '可传 days 查看近 N 天合计（含逐日明细，最多 365）',
+        'inputSchema': {'type': 'object', 'properties': {
+            'days': {'type': 'integer',
+                     'description': '可选：统计最近 N 天（含今天），不传=只看今天'},
+        }},
     },
     {
         'name': 'pet_state',
@@ -151,14 +155,28 @@ def call_tool(name, args):
             _bridge_request('POST', '/event', payload)
             return {'content': [{'type': 'text', 'text': f'鲸鱼娘执行了: {action}'}]}
         if name == 'pet_metrics':
-            m = _bridge_request('GET', '/metrics')
-            hit = m.get('cache_hit_rate', 0)
-            rate = m.get('output_rate', 0)
-            text = (f'累计输入 {m.get("input_tokens", 0)} tok，'
-                    f'累计输出 {m.get("output_tokens", 0)} tok，'
-                    f'缓存命中率 {hit * 100:.0f}%，'
-                    f'最近输出速率 {rate:.0f} tok/s，'
-                    f'响应次数 {m.get("responses", 0)}')
+            days = 1
+            try:
+                days = max(1, min(365, int(args.get('days') or 1)))
+            except Exception:
+                days = 1
+            m = _bridge_request('GET', '/metrics?days=%d' % days)
+            if days > 1:
+                per = '、'.join(f'{d}:{v / 1e6:.1f}M' if v >= 1e6 else f'{d}:{v / 1e3:.0f}k'
+                                for d, v in (m.get('per_day') or [])[-7:])
+                text = (f'近 {days} 天合计 {m.get("total_tokens", 0)} tok'
+                        f'（输入 {m.get("input_tokens", 0)} / 输出 {m.get("output_tokens", 0)}），'
+                        f'缓存命中率 {m.get("cache_hit_rate", 0) * 100:.0f}%，'
+                        f'响应 {m.get("responses", 0)} 次'
+                        + (f'；逐日 {per}' if per else '；暂无逐日明细'))
+            else:
+                hit = m.get('cache_hit_rate', 0)
+                rate = m.get('output_rate', 0)
+                text = (f'今日输入 {m.get("input_tokens", 0)} tok，'
+                        f'输出 {m.get("output_tokens", 0)} tok，'
+                        f'缓存命中率 {hit * 100:.0f}%，'
+                        f'最近输出速率 {rate:.0f} tok/s，'
+                        f'响应 {m.get("responses", 0)} 次（{m.get("day", "today")}）')
             return {'content': [{'type': 'text', 'text': text}]}
         if name == 'pet_state':
             st = _bridge_request('GET', '/state')

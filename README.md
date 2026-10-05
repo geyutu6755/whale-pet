@@ -95,13 +95,16 @@ ZCode 的钩子也带路径存在性守卫，升级后不重启只会静默跳�
 所以「控制 + 用量上报」在其他系统上依然可用。需要 Python 3.8+，依赖
 `pillow`、`numpy`、`pystray`。
 
-## 🔄 数据实时性
+## 🔄 数据实时性（按天统计）
 
-面板数据**全自动实时更新**，无需任何手动刷新：
-- 桌宠进程常驻采集：每 2 秒读一次 ZCode 的模型 I/O 记录（`~/.zcode/cli/rollout/*.jsonl`），
-  每次模型调用的用量到达即累计 → 面板数字当场变化
-- **累计量落盘**（`pet/assets/usage_state.json`，已 gitignore），重启桌宠不丢、也不重复计
-- 面板隐藏期间数据照常累计，点开即是最新值
+面板显示**今天**的用量，**跨天自动归零**，实时记录当天数据：
+
+- 桌宠常驻采集：每 **1 秒**读一次 ZCode 的模型 I/O 记录（`~/.zcode/cli/rollout/*.jsonl`），
+  每次模型调用完成即入账 → 面板数字当场变化
+- **右键 / 托盘 → 用量统计**：今日 / 近 7 天 / 近 30 天（带逐日迷你柱状图，今天高亮）
+- **绝不重复计**：按 requestId 逐条记账（持久化），重启、重装、升级都不会把同一次调用算两遍
+- 账本存在 `~/.whale-pet/usage_state.json`（**插件目录之外**，重装/升级不会覆盖或回退），
+  保留 40 天明细；首次运行自动回填 rollout 里已有的历史
 - 数据源可切：`pet_config.json` 的 `usage_source`（`auto` / `rollout` / `hooks`）；
   其他宿主没有这份记录时自动回落宿主钩子
 
@@ -117,7 +120,7 @@ ZCode 的钩子也带路径存在性守卫，升级后不重启只会静默跳�
 | 连续戳 5 下 | 吓到 → 失落 | 「哼！」→「呜呜～」 |
 | 空闲 60 秒 | 自己睡着，点她唤醒 | 醒来「我在呢～」（入睡不发声） |
 | 右键「哄她睡觉」 | 立刻睡觉 | 「困困啦～」「晚安呀～」 |
-| 右键 / 托盘 | 菜单（打招呼/投喂/玩耍/转圈圈/摇头晃脑/隐藏/用量面板/**音效开关**/退出） | 投喂「小鱼干！」 |
+| 右键 / 托盘 | 菜单（打招呼/投喂/玩耍/哄她睡觉/转圈圈/摇头晃脑/隐藏/**用量统计**/用量面板/**音效+音量**/退出） | 投喂「小鱼干！」 |
 
 ## 🎵 音效
 
@@ -169,7 +172,7 @@ ZCode 的钩子也带路径存在性守卫，升级后不重启只会静默跳�
 | 工具 | 说明 |
 |------|------|
 | `pet_control` | action 枚举：say/celebrate/error/disappointed/think/working/wait/welcome/feed/play/pat/trick/idle/hide/show/hud_on/hud_off/sound_on/sound_off |
-| `pet_metrics` | 查询 Token 用量统计 |
+| `pet_metrics` | 查询 Token 用量统计（默认今天；`days=7` 看近 7 天，含逐日明细） |
 | `pet_state` | 查询桌宠状态 |
 
 Agent 典型用法：任务完成 → `pet_control(celebrate)`；进入长思考 → `pet_control(think, ms=...)`；
@@ -201,7 +204,9 @@ python whale_cli.py sound_on | sound_off      # 音效开关
 
 桌宠**优先读 ZCode 的模型 I/O 记录**（`~/.zcode/cli/rollout/model-io-*.jsonl`）：
 每条记录带真实 `usage`（inputTokens/outputTokens/cacheReadTokens）与耗时，
-桌宠每 2 秒 tail 一次，按 `completedAt` 水位线去重（重启不丢、不重复计）。
+桌宠每 1 秒 tail 一次，**按 requestId 逐条记账**（同一次调用永远不会算两遍），
+按本地日期分桶 → 面板只显示今天，跨天自动归零；`~/.whale-pet/usage_state.json`
+保存最近 40 天明细，重装/升级都不会丢或回退；首次运行自动回填已有历史。
 
 > 为什么不用钩子：ZCode 侧的钩子确实会执行（启动日志 `hookCount: 3`），但它的钩子
 > 载荷里既没有 `usage`、也没有 Claude 式的 `transcript_path`，`report_usage.py`
@@ -209,9 +214,9 @@ python whale_cli.py sound_on | sound_off      # 音效开关
 > 钩子保留着并用 `source` 字段区分，其他宿主（没有该记录）会自动回落到钩子上报，
 > 可在 `pet_config.json` 用 `usage_source` 强制指定。
 
-`hooks/report_usage.py` 仍可用：它从钩子载荷或转写 JSONL 里取 `usage`
-（input/output/cache_read/cache_creation）；输出速率按记录耗时估算。
-Agent 也可直接调 `pet_metrics` 查看当前累计。
+Agent 查询：`pet_metrics()`（今天）/ `pet_metrics(days=7)`（近 7 天，MCP）；
+CLI `whale_cli.py metrics`（今天）/ `whale_cli.py metrics 30`（近 30 天）；
+HTTP `GET /metrics?days=30`。
 
 ## 🛠️ 技术方案
 

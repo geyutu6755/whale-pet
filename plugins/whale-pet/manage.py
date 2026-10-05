@@ -685,14 +685,23 @@ def cmd_status():
         src = 'rollout（ZCode 模型 I/O）' if os.path.isdir(
             os.path.join(HOME, '.zcode', 'cli', 'rollout')) else 'hooks（宿主钩子）'
     tot = ''
-    try:
-        with open(os.path.join(PET_DIR, 'assets', 'usage_state.json'),
-                  encoding='utf-8') as f:
-            m = json.load(f).get('metrics') or {}
-        tok = m.get('input_tokens', 0) + m.get('output_tokens', 0)
-        tot = f' · 累计 {tok / 1e6:.2f}M tok / {m.get("responses", 0)} 次响应'
-    except Exception:
-        pass
+    for st in (os.path.join(HOME, '.whale-pet', 'usage_state.json'),          # v1.3+ 按天账本
+               os.path.join(PET_DIR, 'assets', 'usage_state.json')):          # v1.2 旧位置
+        try:
+            d = json.load(open(st, encoding='utf-8'))
+            if d.get('version') == 2:
+                days = d.get('days') or {}
+                tok = sum(v.get('input', 0) + v.get('output', 0) for v in days.values())
+                n = sum(v.get('responses', 0) for v in days.values())
+                tot = f' · 近 {len(days)} 天 {tok / 1e6:.2f}M tok / {n} 次响应'
+                break
+            m = d.get('metrics') or {}
+            if m:
+                tok = m.get('input_tokens', 0) + m.get('output_tokens', 0)
+                tot = f' · 累计 {tok / 1e6:.2f}M tok / {m.get("responses", 0)} 次响应（旧格式）'
+                break
+        except Exception:
+            pass
     print(f'  用量采集 : {src}{tot}')
     print()
     for key, agent in AGENTS.items():

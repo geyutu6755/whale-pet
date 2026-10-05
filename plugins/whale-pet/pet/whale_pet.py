@@ -18,6 +18,7 @@
     DeepSeek Harness / Codex / ZCode 可通过 whale_cli.py 或 HTTP 推送事件
 """
 import ctypes
+import datetime
 import io
 import json
 import math
@@ -111,7 +112,8 @@ BRIDGE_PORT_DEFAULT = 37821
 
 # 用量采集：ZCode 的模型 I/O 记录（每次模型调用的真实 usage + 起止时间）
 ROLLOUT_DIR = os.path.join(os.path.expanduser('~'), '.zcode', 'cli', 'rollout')
-USAGE_STATE = os.path.join(ASSETS, 'usage_state.json')
+USAGE_DIR = os.path.join(os.path.expanduser('~'), '.whale-pet')
+USAGE_STATE = os.path.join(USAGE_DIR, 'usage_state.json')   # 状态放插件外：重装/升级不会回退水位
 
 NAVY = (58, 84, 140)
 INK = (43, 58, 103)
@@ -478,8 +480,28 @@ class BridgeServer:
                         'usage_source': app.usage_source,
                         'x': app.px, 'y': app.py, 'ts': time.time()})
                 if self.path.startswith('/metrics'):
+                    days = 1
+                    if 'days=' in self.path:
+                        try:
+                            days = max(1, min(365,
+                                              int(self.path.split('days=')[1].split('&')[0])))
+                        except Exception:
+                            days = 1
+                    if days > 1 and app.usage_tail is not None:
+                        agg = app._aggregate(app.usage_tail.days, days)
+                        denom = agg['cache_read'] + agg['input']
+                        return self._json(200, {
+                            'ok': True, 'days': days,
+                            'total_tokens': agg['input'] + agg['output'],
+                            'input_tokens': agg['input'],
+                            'output_tokens': agg['output'],
+                            'cache_read_tokens': agg['cache_read'],
+                            'cache_hit_rate': (agg['cache_read'] / denom) if denom else 0.0,
+                            'responses': agg['responses'],
+                            'per_day': agg['per_day']})
                     with app._metrics_lock:
-                        return self._json(200, {'ok': True, **app.metrics})
+                        return self._json(200, {'ok': True, 'day': app._metrics_day,
+                                                **app.metrics})
                 return self._json(404, {'ok': False, 'err': 'not found'})
 
             def do_POST(self):
@@ -725,62 +747,78 @@ class SoundEngine:
 
 
 # --------------------------------------------------------------------------
-# 用量采集：读 ZCode 的模型 I/O 记录（不依赖宿主钩子）
+# 用量采集：读 ZCode 的模型 I/O 记录，按「天」分桶（不依赖宿主钩子）
 # --------------------------------------------------------------------------
 class UsageTail:
-    """tail ~/.zcode/cli/rollout/model-io-*.jsonl，把每次模型调用的用量累计进 HUD。
+    """tail ~/.zcode/cli/rollout/model-io-*.jsonl，把每次模型调用的用量记到「天」上。
 
-    为什么不用钩子：ZCode 侧钩子虽已注册（启动日志 hookCount=3），但实测没有任何
-    执行记录，HUD 长期为 0。模型 I/O 记录里有真实 usage（inputTokens/outputTokens/
-    cacheReadTokens）与耗时，且不依赖宿主配合；只读本地文件、不出网。
-
-    去重：以记录里的 completedAt 作为水位线，状态持久化到 assets/usage_state.json，
-    重启不丢累计、也不重复计。
+    - 面板显示**今天**的用量（跨天自动归零），右键菜单可看近 7 天 / 近 30 天
+    - 去重：按 requestId 记账（持久化）——无论重启、重装、水位回退都**不会重复计**
+      （v1.2.x 的教训：状态文件放插件目录里，重装时被旧副本覆盖 → 水位回退 → 全量重算，
+       实测 72 条真实记录被记成 1401 次）
+    - 状态存 ~/.whale-pet/usage_state.json（插件外，属于用户数据，重装不覆盖）
+    - 首次运行回填 rollout 里已有的历史：近 7/30 天视图立刻有数据
+    - 只读本地文件、不出网
     """
 
+    VERSION = 2
     READ_TAIL_BYTES = 8 * 1024 * 1024
+    KEEP_DAYS = 40                 # 天级明细保留 40 天（30 天视图 + 余量）
+    MAX_IDS_PER_DAY = 8000         # 每天记账的 requestId 上限（防无限膨胀）
 
-    def __init__(self, app, interval=2.0):
+    def __init__(self, app, interval=1.0):
         self.app = app
         self.dir = app.cfg.get('usage_rollout_dir') or ROLLOUT_DIR
         self.state_path = USAGE_STATE
         self.interval = interval
         self.offsets = {}
-        self.last_ts = ''
-        self._max_ts = ''
-        self._last_saved = None
+        self.days = {}             # 'YYYY-MM-DD' -> {'input','output','cache_read','responses','ids'}
+        self.last_epoch = 0.0
+        self._loaded = False
         self._persist_at = 0.0
 
-    # ---- 状态持久化 ----
+    # ---- 日期 ----
+    @staticmethod
+    def _day_of(epoch):
+        return time.strftime('%Y-%m-%d', time.localtime(epoch))
+
+    def today(self):
+        return self._day_of(time.time())
+
+    # ---- 状态 ----
     def load(self):
+        """读状态 → (今日指标快照或 None)。旧格式（v1 平铺）弃用：历史由回填重建。"""
         try:
             with open(self.state_path, encoding='utf-8') as f:
                 st = json.load(f)
-            return st.get('metrics'), str(st.get('last_ts') or '')
-        except Exception:
-            return None, ''
-
-    def save(self, metrics=None):
-        try:
-            if metrics is None:
-                with self.app._metrics_lock:
-                    metrics = dict(self.app.metrics)
-            with open(self.state_path, 'w', encoding='utf-8') as f:
-                json.dump({'last_ts': self.last_ts, 'metrics': metrics}, f,
-                          ensure_ascii=False)
+            if int(st.get('version') or 0) < self.VERSION:
+                return None
+            self.days = st.get('days') or {}
+            self.last_epoch = float(st.get('last_epoch') or 0.0)
+            self._loaded = True
+            today = self.days.get(self.today())
+            if today:
+                return {'input_tokens': today.get('input', 0),
+                        'output_tokens': today.get('output', 0),
+                        'cache_read_tokens': today.get('cache_read', 0),
+                        'responses': today.get('responses', 0)}
         except Exception:
             pass
+        return None
 
-    def _maybe_save(self, force=False):
-        """累计有变化（主循环已消费队列）就尽快落盘，最迟 15 秒兜底一次。"""
-        with self.app._metrics_lock:
-            cur = dict(self.app.metrics)
-        if not force and cur == self._last_saved and \
-                time.time() - self._persist_at < 15:
-            return
-        self._last_saved = cur
-        self._persist_at = time.time()
-        self.save(cur)
+    def save(self):
+        try:
+            os.makedirs(os.path.dirname(self.state_path), exist_ok=True)
+            cut = time.strftime('%Y-%m-%d', time.localtime(time.time() - self.KEEP_DAYS * 86400))
+            days = {d: v for d, v in self.days.items() if d >= cut}
+            for v in days.values():
+                if len(v.get('ids', [])) > self.MAX_IDS_PER_DAY:
+                    v['ids'] = v['ids'][-self.MAX_IDS_PER_DAY:]
+            with open(self.state_path, 'w', encoding='utf-8') as f:
+                json.dump({'version': self.VERSION, 'last_epoch': self.last_epoch,
+                           'days': days}, f, ensure_ascii=False)
+        except Exception:
+            pass
 
     # ---- 扫描 ----
     def _files(self):
@@ -790,8 +828,8 @@ class UsageTail:
         except Exception:
             return []
 
-    def _record(self, line):
-        """模型 I/O 记录 → (ts, usage payload)；非用量记录返回 None。"""
+    def _record(self, line, path):
+        """模型 I/O 记录 → (requestId, epoch, 本地日期, payload)；非用量记录返回 None。"""
         try:
             e = json.loads(line)
         except Exception:
@@ -803,18 +841,45 @@ class UsageTail:
         if inp + out <= 0:
             return None
         ts = str(e.get('completedAt') or e.get('startedAt') or '')
-        return ts, {'source': 'rollout', 'input_tokens': inp, 'output_tokens': out,
-                    'cache_read_tokens': int(u.get('cacheReadTokens') or 0),
-                    'cache_creation_tokens': 0,
-                    'duration_ms': int(e.get('durationMs') or 0)}
+        try:
+            epoch = datetime.datetime.fromisoformat(ts.replace('Z', '+00:00')).timestamp()
+        except Exception:
+            try:
+                epoch = os.path.getmtime(path)
+            except Exception:
+                return None
+        rid = str(e.get('requestId') or f'{path}:{ts}:{inp}:{out}')
+        return rid, epoch, self._day_of(epoch), {
+            'input_tokens': inp, 'output_tokens': out,
+            'cache_read_tokens': int(u.get('cacheReadTokens') or 0),
+            'cache_creation_tokens': 0,
+            'duration_ms': int(e.get('durationMs') or 0)}
 
-    def _read(self, path, off_from, count):
-        """从 off_from 读到文件尾，按完整行解析；返回新的偏移。"""
+    def _count(self, rid, day, payload):
+        """记一笔（按 requestId 幂等，永不重复计）；今天的数据推给面板。"""
+        bucket = self.days.setdefault(day, {'input': 0, 'output': 0, 'cache_read': 0,
+                                            'responses': 0, 'ids': []})
+        ids = bucket.setdefault('ids', [])
+        if rid in ids:
+            return False
+        ids.append(rid)
+        bucket['input'] += payload['input_tokens']
+        bucket['output'] += payload['output_tokens']
+        bucket['cache_read'] += payload['cache_read_tokens']
+        bucket['responses'] += 1
+        if day == self.today():
+            self.app.cmd_queue.put(('metrics', dict(payload, source='rollout', day=day)))
+        return True
+
+    def _read(self, path, off_from, backfill=False):
+        """从 off_from 读到文件尾；backfill=True 时整文件回填历史。返回新偏移。"""
         try:
             size = os.path.getsize(path)
-            if off_from is None:
+            if backfill:
+                off_from = 0
+            elif off_from is None:
                 off_from = max(0, size - self.READ_TAIL_BYTES)
-            if off_from > size:            # 被截断/轮转
+            if off_from > size:
                 off_from = 0
             if off_from >= size:
                 return size
@@ -822,33 +887,33 @@ class UsageTail:
                 f.seek(off_from)
                 chunk = f.read()
             end = chunk.rfind(b'\n')
-            if end < 0:                    # 还没有完整行
+            if end < 0:
                 return off_from
             for line in chunk[:end].decode('utf-8', 'ignore').splitlines():
                 if not line.strip():
                     continue
-                rec = self._record(line)
-                if not rec:
-                    continue
-                ts, payload = rec
-                if ts > self._max_ts:
-                    self._max_ts = ts
-                if count and (not self.last_ts or ts > self.last_ts):
-                    self.app.cmd_queue.put(('metrics', payload))
+                rec = self._record(line, path)
+                if rec:
+                    rid, epoch, day, payload = rec
+                    if epoch > self.last_epoch or backfill:
+                        self._count(rid, day, payload)
+                    if epoch > self.last_epoch:
+                        self.last_epoch = epoch
             return off_from + end + 1
         except Exception:
             return off_from or 0
 
     def scan(self, initial=False):
-        # 首次运行（没有历史水位线）只对齐水位、不把过去的历史全算进来
-        count = not (initial and not self.last_ts)
+        # 首次运行（没有按天账本）→ 先回填历史，近 7/30 天视图立刻有数据
+        backfill = initial and not self._loaded
         for path in self._files():
-            self.offsets[path] = self._read(path, self.offsets.get(path), count)
-        if self._max_ts:
-            self.last_ts = self._max_ts
-            self._max_ts = ''
-        # 累计有变化就尽快落盘（文件很小）：即使桌宠被强杀，也不丢累计、不重复计
-        self._maybe_save(force=initial)
+            self.offsets[path] = self._read(path, self.offsets.get(path),
+                                            backfill=backfill)
+        self._loaded = True
+        now = time.time()
+        if initial or now - self._persist_at > 5:
+            self._persist_at = now
+            self.save()
 
     def run(self):
         self.scan(initial=True)
@@ -912,12 +977,11 @@ class PetApp:
         self.usage_tail = None
         if self.usage_source == 'rollout':
             self.usage_tail = UsageTail(self)
-            snap, last_ts = self.usage_tail.load()
+            snap = self.usage_tail.load()          # 今天已有的累计（按天账本）
             if isinstance(snap, dict):
                 with self._metrics_lock:
-                    self.metrics.update({k: snap.get(k, self.metrics[k])
-                                         for k in self.metrics if k in snap})
-            self.usage_tail.last_ts = last_ts
+                    self.metrics.update({k: snap[k] for k in self.metrics
+                                         if k in snap})
         # 用量面板显示模式：auto=点一下短暂显示 / on=常显 / off=关闭
         self.hud_mode = self.cfg.get('hud_mode', 'auto')
         if self.hud_mode not in ('auto', 'on', 'off'):
@@ -926,12 +990,16 @@ class PetApp:
         self._hud_shown = False
         self.hud_item = None
         self._hud_photo = None
+        # 用量面板视图：today / 7d / 30d（右键或托盘的「用量统计」切换）
+        self.hud_view = 'today'
+        self._metrics_day = time.strftime('%Y-%m-%d')
 
         self._compute_layout()
         self._build_window()
         self._sound_var = tk.BooleanVar(value=self.sound.enabled)
         self._vol_var = tk.DoubleVar(
             value=float(self.cfg.get('sound_volume', VOLUMES['中'])))
+        self._hud_view_var = tk.StringVar(value=self.hud_view)
         self.player = SpritePlayer(self.scale)
         self._refresh_base()
         self._bind_events()
@@ -1202,6 +1270,11 @@ class PetApp:
         m.add_command(label='摇头晃脑', command=lambda: self.cmd_queue.put('headshake'))
         m.add_command(label='隐藏', command=lambda: self.cmd_queue.put('hide'))
         m.add_separator()
+        usage = tk.Menu(m, tearoff=0, font=('Microsoft YaHei', 9))
+        for label, key in (('今日', 'today'), ('近 7 天', '7d'), ('近 30 天', '30d')):
+            usage.add_radiobutton(label=label, variable=self._hud_view_var,
+                                  value=key, command=self.set_hud_view)
+        m.add_cascade(label='用量统计', menu=usage)
         m.add_checkbutton(label='音效', variable=self._sound_var,
                           command=self.toggle_sound)
         vol = tk.Menu(m, tearoff=0, font=('Microsoft YaHei', 9))
@@ -1455,13 +1528,18 @@ class PetApp:
             threading.Thread(target=self.usage_tail.run, daemon=True).start()
 
     def _handle_metrics(self, data):
-        """累计一次用量上报并重算命中率/速率（只认当前数据源）。"""
+        """累计一次用量上报并重算命中率/速率（只认当前数据源；跨天自动归零）。"""
         src = str(data.get('source') or 'hooks')
         if src == 'hook':          # 兼容旧版钩子脚本写的字段值
             src = 'hooks'
         if src != self.usage_source:
             return
+        day = str(data.get('day') or self._metrics_day)
         with self._metrics_lock:
+            if day != self._metrics_day:      # 跨天：面板从零开始记录新的一天
+                self._metrics_day = day
+                for k in self.metrics:
+                    self.metrics[k] = 0
             m = self.metrics
             m['input_tokens'] += int(data.get('input_tokens', 0))
             m['output_tokens'] += int(data.get('output_tokens', 0))
@@ -1511,7 +1589,10 @@ class PetApp:
 
         色板呼应角色（白围裙 + 蓝花边 + 藏青描边）；2x 超采样 + alpha 阈值化，
         几何平滑且与颜色键画布合成零杂边。深浅壁纸上都清晰可辨。
+        today 视图显示今天的三栏；7d/30d 视图切换到带迷你柱状图的历史面板。
         """
+        if self.hud_view in ('7d', '30d'):
+            return self._render_hud_range(int(self.hud_view[:-1]))
         s = self.scale
         SS = 2
         w = max(int(190 * s), round(self.spr_w * 0.98))
@@ -1566,8 +1647,8 @@ class PetApp:
         lab_y = top
         val_y = lab_y + lab_h
         min_y = val_y + val_h
-        # 栏 1：总 Token（大字，深藏青）+ 输入输出明细
-        d.text((xs[0], lab_y), '总 TOKEN', font=f_lab, fill=(126, 148, 182))
+        # 栏 1：今日 Token（大字，深藏青）+ 输入输出明细
+        d.text((xs[0], lab_y), '今日 TOKEN', font=f_lab, fill=(126, 148, 182))
         d.text((xs[0], val_y), self._fmt_tokens(total), font=f_val, fill=(44, 70, 116))
         micro1 = (f'↑{self._fmt_compact(m.get("input_tokens", 0))} '
                   f'↓{self._fmt_compact(m.get("output_tokens", 0))}') \
@@ -1600,6 +1681,105 @@ class PetApp:
         arr[..., 3] = np.where(arr[..., 3] >= 120, 255, 0)
         im = Image.fromarray(arr, 'RGBA')
         return to_photo(im, remap=False)
+
+    @staticmethod
+    def _aggregate(days, n):
+        """聚合最近 n 天（含今天）的按天账本 → 合计/分项/逐日 token。"""
+        base = datetime.date.today()
+        dates = [(base - datetime.timedelta(days=i)).strftime('%Y-%m-%d')
+                 for i in range(n - 1, -1, -1)]
+        out = {'input': 0, 'output': 0, 'cache_read': 0, 'responses': 0, 'per_day': []}
+        for d in dates:
+            v = days.get(d) or {}
+            i_, o_ = int(v.get('input', 0)), int(v.get('output', 0))
+            out['input'] += i_
+            out['output'] += o_
+            out['cache_read'] += int(v.get('cache_read', 0))
+            out['responses'] += int(v.get('responses', 0))
+            out['per_day'].append((d, i_ + o_))
+        return out
+
+    def _render_hud_range(self, n):
+        """近 n 天用量面板：合计 / 迷你柱状图 / 日均·响应·命中率（与今日面板同尺寸）。"""
+        s = self.scale
+        SS = 2
+        w = max(int(190 * s), round(self.spr_w * 0.98))
+        h = self.hud_h - 12
+        W, H = w * SS, h * SS
+        M = 3 * SS
+        days = self.usage_tail.days if self.usage_tail else {}
+        agg = self._aggregate(days, n)
+        total = agg['input'] + agg['output']
+        denom = agg['cache_read'] + agg['input']
+        hit = (agg['cache_read'] / denom) if denom else 0.0
+        per_day = agg['per_day']
+        avg = total / max(1, n)
+
+        im = Image.new('RGBA', (W + 2 * M, H + 2 * M), (0, 0, 0, 0))
+        d = ImageDraw.Draw(im)
+        radius = max(8, int(12 * SS * s))
+        d.rounded_rectangle([M + SS * 2, M + SS * 3,
+                             M + W + SS * 2 - 1, M + H + SS * 3 - 1],
+                            radius=radius, fill=(203, 214, 232, 255))
+        mask = Image.new('L', (W + 2 * M, H + 2 * M), 0)
+        ImageDraw.Draw(mask).rounded_rectangle(
+            [M, M, M + W - 1, M + H - 1], radius=radius, fill=255)
+        for yy in range(H):
+            t = yy / max(1, H - 1)
+            d.line([(M, M + yy), (M + W, M + yy)],
+                   fill=(int(242 - 9 * t), int(248 - 7 * t), int(255 - 3 * t), 255))
+        im.putalpha(mask)
+        d = ImageDraw.Draw(im)
+        d.rounded_rectangle([M, M, M + W - 1, M + H - 1], radius=radius,
+                            outline=(158, 190, 224, 255), width=max(2, SS))
+        f_lab = load_font(max(10, int(11.5 * SS * s)))
+        f_val = load_font(max(12, int(14 * SS * s)), bold=True)
+        f_min = load_font(max(9, int(10 * SS * s)))
+        # 标题行：视图名 + 合计
+        y0 = M + int(5 * SS * s)
+        d.text((M + int(10 * SS * s), y0), f'近 {n} 天用量', font=f_lab,
+               fill=(126, 148, 182))
+        total_txt = f'合计 {self._fmt_tokens(total)} tok'
+        tw = d.textlength(total_txt, font=f_val)
+        d.text((M + W - int(10 * SS * s) - tw, y0 - int(2 * SS * s)), total_txt,
+               font=f_val, fill=(44, 70, 116))
+        # 迷你柱状图（今天用青绿高亮）
+        bar_top = y0 + int(19 * SS * s)
+        bar_h = int(15 * SS * s)
+        bar_bot = bar_top + bar_h
+        slot = (W - int(16 * SS * s)) / max(1, n)
+        bw = max(2 * SS, int(slot * 0.62))
+        today_key = time.strftime('%Y-%m-%d')
+        peak = max([v for _, v in per_day] + [1])
+        for i, (day, val) in enumerate(per_day):
+            x = M + int(8 * SS * s) + int(i * slot) + int((slot - bw) / 2)
+            bh = int(bar_h * (val / peak)) if val > 0 else max(1, SS)
+            col = (26, 138, 126, 255) if day == today_key else (150, 176, 210, 255)
+            d.rounded_rectangle([x, bar_bot - bh, x + bw, bar_bot],
+                                radius=max(1, SS // 2), fill=col)
+        # 底行：日均 / 响应 / 命中率
+        fy = bar_bot + int(4 * SS * s)
+        d.text((M + int(10 * SS * s), fy),
+               f'日均 {self._fmt_tokens(avg)} · 响应 {agg["responses"]} 次',
+               font=f_min, fill=(146, 166, 198))
+        hit_txt = f'命中 {hit * 100:.0f}%'
+        hw = d.textlength(hit_txt, font=f_min)
+        d.text((M + W - int(10 * SS * s) - hw, fy), hit_txt, font=f_min,
+               fill=(146, 166, 198))
+        im = im.resize((w + 6, h + 6), Image.LANCZOS)
+        arr = np.asarray(im).copy()
+        arr[..., 3] = np.where(arr[..., 3] >= 120, 255, 0)
+        im = Image.fromarray(arr, 'RGBA')
+        return to_photo(im, remap=False)
+
+    def set_hud_view(self, view):
+        """切换用量面板视图（today/7d/30d），并立刻显示一下。"""
+        self.hud_view = view if view in ('today', '7d', '30d') else 'today'
+        try:
+            self._hud_view_var.set(self.hud_view)
+        except Exception:
+            pass
+        self.flash_hud()
 
     def _update_hud(self, force=False):
         """按需重建 HUD 图像；auto 模式到点自动隐藏。"""
@@ -1790,6 +1970,13 @@ class PetApp:
                                      checked=lambda i: self.hud_mode == 'on'),
                     pystray.MenuItem('关闭', cmd(('hud_mode', 'off')),
                                      checked=lambda i: self.hud_mode == 'off'))),
+                pystray.MenuItem('用量统计', pystray.Menu(
+                    pystray.MenuItem('今日', cmd(('hud_view', 'today')), radio=True,
+                                     checked=lambda i: self.hud_view == 'today'),
+                    pystray.MenuItem('近 7 天', cmd(('hud_view', '7d')), radio=True,
+                                     checked=lambda i: self.hud_view == '7d'),
+                    pystray.MenuItem('近 30 天', cmd(('hud_view', '30d')), radio=True,
+                                     checked=lambda i: self.hud_view == '30d'))),
                 pystray.MenuItem('置顶窗口', cmd('topmost'),
                                  checked=lambda i: bool(self.cfg.get('topmost'))),
                 pystray.MenuItem('音效', cmd('sound'),
@@ -1973,6 +2160,8 @@ class PetApp:
                         self.set_alpha(val)
                     elif kind == 'hud_mode':
                         self.set_hud_mode(val)
+                    elif kind == 'hud_view':
+                        self.set_hud_view(val)
                     elif kind == 'sound_volume':
                         self.set_volume(val)
 
