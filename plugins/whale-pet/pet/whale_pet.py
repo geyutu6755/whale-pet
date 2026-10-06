@@ -29,6 +29,11 @@ if os.name != 'nt':      # 透明窗口(颜色键)/winsound/DPI 都依赖 Window
     _sys.stderr.write('鲸鱼娘桌宠目前仅支持 Windows（需要透明窗口与 winsound）。\n'
                       '本次退出；其他 Agent 上的文本互动仍可用 MCP/CLI 接口。\n')
     _sys.exit(0)
+try:
+    import winreg        # 开机自启（HKCU Run 键），仅 Windows
+    import ctypes.wintypes
+except Exception:
+    winreg = None
 import queue
 import random
 import secrets
@@ -115,6 +120,7 @@ BRIDGE_PORT_DEFAULT = 37821
 ROLLOUT_DIR = os.path.join(os.path.expanduser('~'), '.zcode', 'cli', 'rollout')
 USAGE_DIR = os.path.join(os.path.expanduser('~'), '.whale-pet')
 USAGE_STATE = os.path.join(USAGE_DIR, 'usage_state.json')   # 状态放插件外：重装/升级不会回退水位
+COMPANION_STATE = os.path.join(USAGE_DIR, 'companion.json')  # 陪伴成长账本（XP/称号）
 
 NAVY = (58, 84, 140)
 INK = (43, 58, 103)
@@ -506,6 +512,8 @@ class BridgeServer:
                         'sound': bool(app.sound.enabled),
                         'sound_volume': round(float(app.sound.volume), 2),
                         'skin': app.skin,
+                        'autostart': autostart_enabled(),
+                        'companion': app.ledger.snapshot(),
                         'usage_source': app.usage_source,
                         'x': app.px, 'y': app.py, 'ts': time.time()})
                 if self.path.startswith('/metrics'):
@@ -768,6 +776,171 @@ class SoundEngine:
 
 
 # --------------------------------------------------------------------------
+# 陪伴成长：XP / 等级 / 称号（设计借自上游 vlln/whale-girl 成长系统，MIT）
+#   原则：零负反馈——失败只计数不扣减；一切向上积累
+# --------------------------------------------------------------------------
+TITLES = (                                    # (id, 名称, 解锁条件)
+    ('first-task', '初次协作', '完成 ≥1 次任务'),
+    ('helper', '勤劳伙伴', '完成 ≥20 次任务'),
+    ('veteran', '百炼成钢', '完成 ≥100 次任务'),
+    ('regular', '常驻伙伴', '累计陪伴 ≥6 小时'),
+    ('resilient', '越挫越勇', '经历 ≥5 次失败'),
+    ('social', '广结善缘', '经历 ≥10 次会话'),
+)
+
+
+def xp_for_level(level):
+    """上游同款曲线：L2=50、L3=150、L4=300…"""
+    return 50 * level * (level - 1) // 2
+
+
+RUN_KEY = r'Software\Microsoft\Windows\CurrentVersion\Run'
+AUTOSTART_SCRIPT = os.path.join(USAGE_DIR, 'autostart.py')
+
+# 开机自启脚本：运行期定位最新安装副本（与 mcp_launcher 同套路，升级不失效）
+AUTOSTART_SRC = '''# -*- coding: utf-8 -*-
+"""鲸鱼娘桌宠开机自启：运行期定位最新的插件副本（升级不失效）。"""
+import glob
+import os
+import runpy
+import sys
+
+PATTERNS = (
+    os.path.join(os.path.expanduser('~'), '.zcode', 'cli', 'plugins', 'cache',
+                 '*', 'whale-pet', '*', 'pet', 'whale_pet.py'),
+    os.path.join(os.path.expanduser('~'), '.claude', 'plugins', 'cache',
+                 '*', 'whale-pet', '*', 'pet', 'whale_pet.py'),
+)
+
+
+def find():
+    cands = [p for pat in PATTERNS for p in glob.glob(pat) if os.path.exists(p)]
+    cands.sort(key=os.path.getmtime)
+    return cands[-1] if cands else ''
+
+
+if __name__ == '__main__':
+    target = find()
+    if target:
+        sys.argv = [target]
+        runpy.run_path(target, run_name='__main__')
+'''
+
+
+def autostart_enabled():
+    if not winreg:
+        return False
+    try:
+        with winreg.OpenKey(winreg.HKEY_CURRENT_USER, RUN_KEY) as k:
+            winreg.QueryValueEx(k, 'whale-pet')
+        return True
+    except OSError:
+        return False
+    except Exception:
+        return False
+
+
+def set_autostart(enable):
+    if not winreg:
+        return False, '此系统不支持注册表'
+    try:
+        if enable:
+            os.makedirs(USAGE_DIR, exist_ok=True)
+            with open(AUTOSTART_SCRIPT, 'w', encoding='utf-8') as f:
+                f.write(AUTOSTART_SRC)
+            exe = sys.executable
+            if exe.lower().endswith('python.exe') and \
+                    os.path.exists(exe[:-10] + 'pythonw.exe'):
+                exe = exe[:-10] + 'pythonw.exe'          # 开机自启不带控制台
+            cmd = '"%s" "%s"' % (exe, AUTOSTART_SCRIPT)
+            with winreg.CreateKey(winreg.HKEY_CURRENT_USER, RUN_KEY) as k:
+                winreg.SetValueEx(k, 'whale-pet', 0, winreg.REG_SZ, cmd)
+            return True, '已开启开机自启（下次开机她会在）'
+        with winreg.OpenKey(winreg.HKEY_CURRENT_USER, RUN_KEY, 0,
+                            winreg.KEY_SET_VALUE) as k:
+            winreg.DeleteValue(k, 'whale-pet')
+        return True, '已关闭开机自启'
+    except FileNotFoundError:
+        return True, '本来就没开启'
+    except Exception as e:
+        return False, str(e)
+
+
+def level_of(xp):
+    lvl = 1
+    while xp_for_level(lvl + 1) <= xp and lvl < 999:
+        lvl += 1
+    return lvl
+
+
+class CompanionLedger:
+    """陪伴账本：XP、任务/失败/会话/活跃时长、称号（按统计幂等派生）。"""
+
+    def __init__(self, path=None):
+        self.path = path or COMPANION_STATE
+        self.xp = 0
+        self.stats = {'tasks': 0, 'failures': 0, 'sessions': 0, 'active_ms': 0}
+        self.titles = []
+        self.first_seen = time.strftime('%Y-%m-%d')
+        self.load()
+
+    def load(self):
+        try:
+            with open(self.path, encoding='utf-8') as f:
+                d = json.load(f)
+            self.xp = int(d.get('xp', 0))
+            self.stats.update(d.get('stats') or {})
+            self.titles = [tuple(t) for t in (d.get('titles') or [])]
+            self.first_seen = str(d.get('first_seen') or self.first_seen)
+        except Exception:
+            pass
+
+    def save(self):
+        try:
+            os.makedirs(os.path.dirname(self.path), exist_ok=True)
+            with open(self.path, 'w', encoding='utf-8') as f:
+                json.dump({'xp': self.xp, 'stats': self.stats,
+                           'titles': self.titles, 'first_seen': self.first_seen},
+                          f, ensure_ascii=False)
+        except Exception:
+            pass
+
+    def add_xp(self, n):
+        before = level_of(self.xp)
+        self.xp = min(int(self.xp + n), 10 ** 12)
+        return level_of(self.xp) > before            # 升级了？
+
+    def check_titles(self):
+        """按统计幂等派生称号；返回新解锁的 [(id, name)]。"""
+        got, s = [], self.stats
+        for rid, name, _ in TITLES:
+            if (rid, name) in self.titles:
+                continue
+            if ((rid == 'first-task' and s['tasks'] >= 1) or
+                    (rid == 'helper' and s['tasks'] >= 20) or
+                    (rid == 'veteran' and s['tasks'] >= 100) or
+                    (rid == 'regular' and s['active_ms'] >= 6 * 3600 * 1000) or
+                    (rid == 'resilient' and s['failures'] >= 5) or
+                    (rid == 'social' and s['sessions'] >= 10)):
+                self.titles.append((rid, name))
+                got.append((rid, name))
+        return got
+
+    def snapshot(self):
+        lvl = level_of(self.xp)
+        nxt = xp_for_level(lvl + 1)
+        try:
+            days = max(1, round((time.time() - time.mktime(
+                time.strptime(self.first_seen, '%Y-%m-%d'))) / 86400))
+        except Exception:
+            days = 1
+        return {'level': lvl, 'xp': self.xp, 'xp_next': max(0, nxt - self.xp),
+                'title': (self.titles[-1][1] if self.titles else '初来乍到'),
+                'titles': [n for _, n in self.titles], 'stats': dict(self.stats),
+                'days': days}
+
+
+# --------------------------------------------------------------------------
 # 用量采集：读 ZCode 的模型 I/O 记录，按「天」分桶（不依赖宿主钩子）
 # --------------------------------------------------------------------------
 class UsageTail:
@@ -1017,6 +1190,22 @@ class PetApp:
         # Q弹果冻动画：触发后在持续时间内做衰减的压扁/拉伸
         self._jelly_until = 0.0
         self._jelly_dur = 0.32
+        # 陪伴成长账本 + 会话计数（XP/称号详见 CompanionLedger）
+        self.ledger = CompanionLedger()
+        self.ledger.stats['sessions'] += 1
+        self.ledger.add_xp(5)
+        self.ledger.save()
+        self._title_check = 0.0
+        self._active_ms_buffer = 0.0
+        self._last_active_check = time.time()
+        # 拖拽抛掷 / 鼠标视线 / 久坐提醒
+        self.throw = None
+        self._drag_hist = []
+        self._gaze_check = 0.0
+        self._gaze_want = 0
+        self._gaze_want_at = 0.0
+        self._busy_since = 0.0
+        self._busy_reminded = False
 
         self._compute_layout()
         self._build_window()
@@ -1175,6 +1364,85 @@ class PetApp:
         self._jelly_until = time.time() + dur
         self._jelly_dur = dur
 
+    def _on_task_done(self):
+        """任务完成记账：tasks+1、XP+10、称号派生；升级/解锁会当场庆祝。"""
+        self.ledger.stats['tasks'] += 1
+        lvl_up = self.ledger.add_xp(10)
+        got = self.ledger.check_titles()
+        self.ledger.save()
+        self._announce_growth(got, lvl_up)
+
+    def _on_failure(self):
+        """失败只计数不惩罚（零负反馈）。"""
+        self.ledger.stats['failures'] += 1
+        got = self.ledger.check_titles()
+        self.ledger.save()
+        self._announce_growth(got)
+
+    def _announce_growth(self, titles, level_up=False):
+        if self.hidden:
+            return
+        if titles:
+            self._set_state('celebrate', CELEBRATE_MS / 1000)
+            self.say('解锁称号「%s」！' % titles[-1][1])
+            self._spawn_hearts(2)
+            self.jelly(0.5)
+        elif level_up:
+            self.say('升级啦！Lv.%d ✓' % level_of(self.ledger.xp))
+
+    def _update_ledger(self, now):
+        """活跃陪伴时长累积（只算工作/思考/等待；单次增量封顶 5 分钟）。"""
+        dt = (now - self._last_active_check) * 1000.0
+        self._last_active_check = now
+        if self.state in ('working', 'think', 'wait') and not self.hidden:
+            self._active_ms_buffer += min(dt, 30000)
+        if self._active_ms_buffer >= 30000:
+            self.ledger.stats['active_ms'] += int(self._active_ms_buffer)
+            self._active_ms_buffer = 0.0
+            got = self.ledger.check_titles()
+            self.ledger.save()
+            self._announce_growth(got)
+
+    def _update_rest(self, now):
+        """久坐提醒（可关）：连续工作/思考太久时，温柔催一句休息。"""
+        if not self.cfg.get('rest_remind', True):
+            return
+        busy = self.state in ('working', 'think', 'wait')
+        if busy and not self._busy_since:
+            self._busy_since = now
+            self._busy_reminded = False
+        elif not busy:
+            self._busy_since = 0.0
+        limit = max(5, int(self.cfg.get('rest_remind_min', 50))) * 60
+        if busy and not self._busy_reminded and now - self._busy_since >= limit:
+            self._busy_reminded = True
+            self._set_state('joy', JOY_MS / 1000)
+            self.say('主人，连续干活好久啦，起来伸个懒腰嘛～🧋')
+            self.jelly(0.4)
+
+    def _update_gaze(self, now):
+        """视线跟随：待机时鼠标在一侧停留 2 秒，她就转过去看（无钩子，纯轮询）。"""
+        if now < self._gaze_check:
+            return
+        self._gaze_check = now + 0.5
+        try:
+            pt = ctypes.wintypes.POINT()
+            if not ctypes.windll.user32.GetCursorPos(ctypes.byref(pt)):
+                return
+        except Exception:
+            return
+        dx = pt.x - self.sx
+        want = 0 if abs(dx) < 260 else (1 if dx < 0 else -1)   # 1=朝左（素材基准）
+        if want == 0 or want == self.flip:
+            self._gaze_want = 0
+            return
+        if self._gaze_want != want:
+            self._gaze_want = want
+            self._gaze_want_at = now
+        elif now - self._gaze_want_at >= 2.0:
+            self.flip = want
+            self._gaze_want = 0
+
     def _voice(self, event):
         """播放事件语音。返回 True = 气泡已交给语音台词（调用方不必再补台词）。
 
@@ -1222,6 +1490,7 @@ class PetApp:
         now = time.time()
         is_double = now - self._last_press_at < 0.30
         self._last_press_at = now
+        self.throw = None                   # 抓住她 = 取消抛飞
         if self._note_poke():
             self.drag = None
             return
@@ -1253,6 +1522,9 @@ class PetApp:
             if not self._voice('drag'):
                 self.say(random.choice(LINES['drag']))
         if self.drag['moved']:
+            self._drag_hist.append((e.x_root, e.y_root, time.time()))
+            if len(self._drag_hist) > 6:
+                self._drag_hist.pop(0)
             self._move_window(self.drag['sx'] + dx, self.drag['sy'] + dy)
             self.flip = -1 if dx > 0 else 1
 
@@ -1277,7 +1549,20 @@ class PetApp:
         d = self.drag
         self.drag = None
         if d['moved']:
+            # 抛掷判定：松手瞬间的速度（取最近 ~120ms 的位移）
+            vx = vy = 0.0
+            if len(self._drag_hist) >= 2:
+                (x1, y1, t1), (x2, y2, t2) = self._drag_hist[0], self._drag_hist[-1]
+                dt = max(0.016, t2 - t1)
+                vx, vy = (x2 - x1) / dt, (y2 - y1) / dt
+            self._drag_hist = []
             self._clamp_and_save()
+            if math.hypot(vx, vy) > 300:                  # 用力甩 = 抛飞出去
+                self.throw = {'vx': max(-2400.0, min(2400.0, vx)),
+                              'vy': max(-2400.0, min(2400.0, vy)),
+                              'bounces': 0, 'last': time.time()}
+                self._set_state('drag')                   # 飞行中沿用摇摆姿态
+                return
             self.jelly(0.4)
             if d.get('wake_on_release'):
                 self.sleeping_anim = False
@@ -1402,6 +1687,42 @@ class PetApp:
         """状态机决策（优先级降序）。"""
         if self.drag:
             return
+        if self.throw:            # 被抛飞：重力弹道 + 落地 Q 弹
+            t = self.throw
+            dt = min(0.05, max(0.001, now - t['last']))
+            t['last'] = now
+            t['vy'] += 1900 * dt
+            nx, ny = self.sx + t['vx'] * dt, self.sy + t['vy'] * dt
+            ox = ctypes.windll.user32.GetSystemMetrics(76)
+            oy = ctypes.windll.user32.GetSystemMetrics(77)
+            sw = ctypes.windll.user32.GetSystemMetrics(78)
+            ground = oy + ctypes.windll.user32.GetSystemMetrics(79) - 8
+            if t['vx'] > 60:
+                self.flip = -1
+            elif t['vx'] < -60:
+                self.flip = 1
+            if nx < ox + self.spr_w / 2:
+                nx, t['vx'] = ox + self.spr_w / 2, abs(t['vx']) * 0.5
+            elif nx > ox + sw - self.spr_w / 2:
+                nx, t['vx'] = ox + sw - self.spr_w / 2, -abs(t['vx']) * 0.5
+            if ny >= ground:
+                ny = ground
+                if abs(t['vy']) > 320 and t['bounces'] < 2:
+                    t['vy'], t['vx'] = -t['vy'] * 0.38, t['vx'] * 0.7
+                    t['bounces'] += 1
+                    self.jelly(0.35)
+                else:
+                    self.throw = None
+                    self.sy = ny
+                    self._clamp_and_save()
+                    self.jelly(0.5)
+                    self._set_state('idle', DRAG_RELEASE_MS / 1000)
+                    self.say(random.choice(['砰！…没事，我是果冻做的～',
+                                            '落地点零分，弹性满分！']))
+                    return
+            self.sx, self.sy = nx, ny
+            self._move_window(nx, ny)
+            return
         if self.state == 'walk':
             w = self.walk
             t = min(1.0, (now - w['t0']) / w['dur'])
@@ -1438,6 +1759,10 @@ class PetApp:
             if self._jelly_until > now:
                 self._refresh_base()               # Q弹进行中：逐 tick 换挤压变体
             self._update_particles()
+            self._update_ledger(now)
+            self._update_rest(now)
+            if self.state == 'idle' and not self.hidden:
+                self._update_gaze(now)
             self._update_hud()
             if self.bubble and now > self.bubble['until']:
                 self._next_bubble()
@@ -1779,9 +2104,10 @@ class PetApp:
         f_lab = load_font(max(10, int(11.5 * SS * s)))
         f_val = load_font(max(12, int(14 * SS * s)), bold=True)
         f_min = load_font(max(9, int(10 * SS * s)))
-        # 标题行：视图名 + 合计
+        # 标题行：视图名 + 陪伴等级 + 合计
         y0 = M + int(5 * SS * s)
-        d.text((M + int(10 * SS * s), y0), f'近 {n} 天用量', font=f_lab,
+        lvl_txt = f'近 {n} 天 · Lv.{level_of(self.ledger.xp)}'
+        d.text((M + int(10 * SS * s), y0), lvl_txt, font=f_lab,
                fill=(126, 148, 182))
         total_txt = f'合计 {self._fmt_tokens(total)} tok'
         tw = d.textlength(total_txt, font=f_val)
@@ -2025,6 +2351,8 @@ class PetApp:
                                  checked=lambda i: bool(self.cfg.get('topmost'))),
                 pystray.MenuItem('音效', cmd('sound'),
                                  checked=lambda i: self.sound.enabled),
+                pystray.MenuItem('开机自启', cmd('autostart'),
+                                 checked=lambda i: autostart_enabled()),
                 pystray.MenuItem('皮肤', pystray.Menu(
                     pystray.MenuItem('立体圆润', cmd(('skin', 'puffy')), radio=True,
                                      checked=lambda i: self.skin == 'puffy'),
@@ -2146,12 +2474,15 @@ class PetApp:
                 if etype == 'celebrate':
                     self._spawn_hearts(2)
                     self.jelly(0.5)
+                    self._on_task_done()
             elif etype in ('error', 'disappointed'):
                 self._set_state(etype, (ms or (ERROR_MS if etype == 'error' else DISAPPOINTED_MS)) / 1000)
                 if text:
                     self.say(text)
                 elif not self._voice(etype):
                     self.say(random.choice(LINES[etype]))
+                if etype == 'error':
+                    self._on_failure()
         except Exception as e:
             if DEBUG:
                 print(f'[agent] {etype} 处理失败: {e}', flush=True)
@@ -2197,6 +2528,9 @@ class PetApp:
                 self.set_sound(not self.sound.enabled)
             elif cmd == 'sound_chatter':
                 self.set_sound_chatter(not bool(self.cfg.get('sound_chatter')))
+            elif cmd == 'autostart':
+                ok, msg = set_autostart(not autostart_enabled())
+                self.say(msg)
             elif cmd == 'skin':
                 self.set_skin('flat' if self.skin == 'puffy' else 'puffy')
             elif cmd == 'sleep_now':

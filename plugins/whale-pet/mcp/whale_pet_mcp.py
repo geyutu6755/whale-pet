@@ -180,8 +180,11 @@ def call_tool(name, args):
             return {'content': [{'type': 'text', 'text': text}]}
         if name == 'pet_state':
             st = _bridge_request('GET', '/state')
-            return {'content': [{'type': 'text',
-                                 'text': json.dumps(st, ensure_ascii=False)}]}
+            c = st.get('companion') or {}
+            text = (f"姿态 {st.get('state')}，Lv.{c.get('level', 1)} {c.get('title', '')}，"
+                    f"陪伴 {c.get('days', 1)} 天，累计任务 {c.get('stats', {}).get('tasks', 0)} 次；"
+                    f"皮肤 {st.get('skin')}，音效 {'开' if st.get('sound') else '关'}")
+            return {'content': [{'type': 'text', 'text': text}]}
         return {'content': [{'type': 'text', 'text': f'未知工具: {name}'}]}
     except Exception as e:
             return {'content': [{'type': 'text',
